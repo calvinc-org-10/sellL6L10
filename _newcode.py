@@ -33,6 +33,12 @@ from cMenu.utils import (
 
 from cMenu.utils.cQdbFormWidgets import cSimpleRecordSubForm2
 
+class cSimpleFormBase():
+    pass
+
+
+################# may not be needed ...
+#######################################
 
 ####  New table model and delegate using column definitions  #####
 ####  to define columns, rather than reflecting the ORM model  #####
