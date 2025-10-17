@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QDateEdit, QCheckBox, QLabel, 
     QPushButton,
     QTableView, QStyledItemDelegate, QItemDelegate,
+    QLayout, 
     )
 import qtawesome
 
@@ -34,8 +35,30 @@ from cMenu.utils import (
 from cMenu.utils.cQdbFormWidgets import cSimpleRecordSubForm2
 
 class cSimpleFormBase():
-    pass
+    _ORMModel = None
+    _ssnmaker = None
 
+    def __init__(self):
+        pass
+        # super init
+        # set parent
+        # set model, primary key
+        # set ssnmaker
+        
+    
+    def _buildFormLayout() -> QLayout:
+        pass
+    
+    def ORMModel(self):
+        return self._ORMModel
+    def setORMModel(self, model):
+        self._ORMModel = model
+    
+    def ssnmaker(self):
+        return self._ssnmaker
+    def setssnmaker(self,ssnmaker):
+        self._ssnmaker = ssnmaker
+        
 
 ################# may not be needed ...
 #######################################
