@@ -1,0 +1,10 @@
+TODO: move parent arg for pleaseWriteMe to end
+TODO: move clearLayout to prototype utils, better yet, move utils to prototype
+TODO: pragma foreign_keys = ON; for each db connection
+TODO: convert session.query() calls to session.select()
+TODO: QMessageBox.question -> AreYouSure
+
+DONE: put headers on Table forms
+DONE: SimpleTableForm
+DONE: divorce _data from the model instances, so that it persists without session  (cMenu.utils/SQLAlchemyTableModel)
+

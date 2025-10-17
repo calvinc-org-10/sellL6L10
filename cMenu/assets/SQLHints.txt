@@ -1,0 +1,2 @@
+txtHints = 'PRAGMA table_list;'
+txtHints += '\nPRAGMA table_xinfo(tablname);'
