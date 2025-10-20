@@ -785,7 +785,7 @@ class cSimpleRecordForm(QWidget):
     Returns:
         _type_: _description_
     """
-    _model: Type[Any]  # the ORM model class
+    _ORMmodel: Type[Any]  # the ORM model class
     _primary_key: Any  # the ORM PK column (InstrumentedAttribute)
     _ssnmaker: sessionmaker[Session]
     _formname = None
@@ -809,11 +809,11 @@ class cSimpleRecordForm(QWidget):
         """
         super().__init__(parent)
     
-        if not self._model:
+        if not self._ORMmodel:
             if not model:
                 raise ValueError("A model class must be provided either in the constructor or as a class attribute")
-            self._model = model
-        self._primary_key = get_primary_key_column(self._model)
+            self._ORMmodel = model
+        self._primary_key = get_primary_key_column(self._ORMmodel)
 
         if not self._formname:
             self._formname = formname if formname else 'Form'
@@ -1040,7 +1040,7 @@ class cSimpleRecordForm(QWidget):
                     widgType = cDataList  # force it to be a cDataList
                 widget = cQFmLookupWidg(
                     session_factory=self._ssnmaker if self._ssnmaker else app_Session,
-                    model=self._model,
+                    model=self._ORMmodel,
                     lookup_field=modlFld,
                     lblText=lblText,
                     alignlblText=alignlblText,
@@ -1165,7 +1165,7 @@ class cSimpleRecordForm(QWidget):
 
         implementation should call fillFormFromcurrRec() after setting default values in self.currRec
         """
-        self.currRec = self._model()  
+        self.currRec = self._ORMmodel()  
         # raise NotImplementedError
     # initializeRec
 
@@ -1246,7 +1246,7 @@ class cSimpleRecordForm(QWidget):
     def _load_record_by_id(self, pk_val):
         """Low-level load (assumes it's safe to replace current record)."""
         with self._ssnmaker() as session:
-            rec = session.get(self._model, pk_val)
+            rec = session.get(self._ORMmodel, pk_val)
             if rec is None:
                 self.showError(f"No Record with id {pk_val}")
                 return
@@ -1269,12 +1269,12 @@ class cSimpleRecordForm(QWidget):
             return  # Cancel pressed → stay put
         
         if isinstance(field, str):
-            orm_field = getattr(self._model, field)
+            orm_field = getattr(self._ORMmodel, field)
         else:
             orm_field = field
 
         with self._ssnmaker() as session:
-            rec = session.query(self._model).filter(orm_field == value).first()
+            rec = session.query(self._ORMmodel).filter(orm_field == value).first()
             if rec is None:
                 self.showError(f"No Record with {orm_field.key} == {value}")
                 return
@@ -1424,7 +1424,7 @@ class cSimpleRecordForm(QWidget):
 
         # Actually delete
         with self._ssnmaker() as session:
-            rec = session.get(self._model, keyID)
+            rec = session.get(self._ORMmodel, keyID)
             if rec:
                 session.delete(rec)
                 session.commit()
@@ -1443,7 +1443,7 @@ class cSimpleRecordForm(QWidget):
     def make_currRecEmpty(self):
         # replace with an empty record
         # assume this is an intentional call - don't check currRec.isDirty
-        self.currRec = self._model()
+        self.currRec = self._ORMmodel()
         self.setDirty(self, False)
         self.fillFormFromcurrRec()
     # makeCurrecEmpty
@@ -1627,7 +1627,7 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base):
 
         super().__init__(parent=parent)
 
-        self.setParent(parent)
+        # self.setParent(parent) # doesn't super().__init__ do this?
 
         self.layoutMain = QVBoxLayout(self)
         self.layoutForm = QGridLayout()
@@ -1971,7 +1971,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
 
 # NEXT: make viewClass QListWidget (was QTableView)
     def __init__(self,
-        model: Type[Any]|None = None,
+        ORMmodel: Type[Any]|None = None,
         parentFK: Any = None,
         session_factory: sessionmaker[Session] | None = None,
         viewClass: Type[QListWidget] = QListWidget,
@@ -1981,9 +1981,9 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
         super().__init__(parent)
 
         if not self._model:
-            if not model:
+            if not ORMmodel:
                 raise ValueError("A model class must be provided either in the constructor or as a class attribute")
-            self._model = model
+            self._model = ORMmodel
         self._primary_key = get_primary_key_column(self._model)
 
         pfk = parentFK if parentFK else getattr(self, '_parentFK', None)
