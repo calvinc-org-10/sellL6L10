@@ -4,6 +4,7 @@
 from typing import (Callable, List, Dict, Type, Any, )
 
 from PySide6.QtCore import (
+    Slot, Signal,
     Qt, QModelIndex,
     )
 from PySide6.QtGui import (
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
 import qtawesome
 
 from sqlalchemy import (
-    literal, 
+    literal, func,
     )
 from sqlalchemy.orm import (
     sessionmaker, Session,
@@ -44,6 +45,7 @@ class cSimpleFormBase(QWidget):
     _primary_key: Any
     _ssnmaker:sessionmaker[Session]|None = None
     currRec: Any
+    _newrecFlag: QLabel
     pages: List = []
     fieldDefs: Dict[str, Dict[str, Any]] = {}
     _lookupFrmElements: List[cQFmLookupWidg] = []
@@ -323,7 +325,7 @@ class cSimpleFormBase(QWidget):
         self.initializeRec()
         self.on_loadfirst_clicked()
         
-        self.showNewRecordFlag(self.isNewRecord())
+        self.showNewRecordFlag()
     # initialdisplay()
 
     def statusBar(self) -> QStatusBar|None:
@@ -341,11 +343,389 @@ class cSimpleFormBase(QWidget):
         # TODO: choose whether to messageBox or status bar or both
     # showError
 
-    def changeField(self, widget: QWidget, fieldName: str, value: Any) -> None:
-        """Handle field changes."""
-        pass
-    # changeField
+    def isit_OKToLeaveRecord(self) -> bool:
+        """
+        Check if the form is dirty. If so, prompt user.
+        Returns True if it is safe to proceed with navigation, False otherwise.
+        """
+        if not self.isDirty():
+            return True
+
+        choice = areYouSure(
+            self,
+            "Unsaved changes",
+            "You have unsaved changes. Save before continuing?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
+            )
+
+        if choice == QMessageBox.StandardButton.Yes:
+            self.on_save_clicked()
+            return True
+
+        elif choice == QMessageBox.StandardButton.No:
+            # Discard changes -> reload current record fresh
+            if self.currRec:
+                self.fillFormFromcurrRec()
+            return True
+
+        else:  # Cancel
+            return False
+    # isit_OKToLeaveRecord
+
+    def fillFormFromcurrRec(self):
+        for fldDef in self.fieldDefs.values():
+            fld = fldDef.get("widget")
+            if fld:
+                fld.loadFromRecord(self.currRec)
+
+        self.showNewRecordFlag()
+        self.setDirty(False)
+    # fillFormFromRec
+
+    # TODO: wrap with fillFormFromcurrRec
+    # TODO: play with positioning of new record flag
+    def showNewRecordFlag(self) -> None:
+        self._newrecFlag.setVisible(self.isNewRecord())
+
+    def isNewRecord(self) -> bool:
+        return self.currRec is None or getattr(self.currRec, self._primary_key.key) is None
+            
+    def repopLookups(self) -> None:
+        """Repopulate all lookup widgets (e.g., after a save)."""
+        return
+        for lookupWidget in self._lookupFrmElements:
+            lookupWidget.repopulateChoices()
+
+    ##########################################
+    ########    Create
+
+    def initializeRec(self):
+        """
+        Initialize a new record with default values.
+
+        implementation should call fillFormFromcurrRec() after setting default values in self.currRec
+        """
+        modlType = self.ORMmodel()
+        assert modlType is not None, "ORMmodel must be set before initializing record"
+        self.currRec = modlType()
+    # initializeRec
+
+    def on_add_clicked(self):
+        """
+        Add a new record to the database: initialize, set defaults and save.
+        No, don't save. reserve that for the save button.
+        """
+        # if dirty, ask to save
+        if not self.isit_OKToLeaveRecord():
+            return
+        
+        self.initializeRec()
+        self.fillFormFromcurrRec()
+    # add_record
     
+    ##########################################
+    ########    Read / Navigation
+
+    # # --- Lookup navigation ---
+    def _load_record_by_id(self, pk_val):
+        """Low-level load (assumes it's safe to replace current record)."""
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            modl = self.ORMmodel()
+            assert modl is not None, "ORMmodel must be set before loading record"
+            rec = session.get(modl, pk_val)
+            if rec is None:
+                self.showError(f"No Record with id {pk_val}")
+                return
+            else:
+                # detach rec from session and make it the current record
+                session.expunge(rec)
+                self.currRec = rec
+                self.fillFormFromcurrRec()
+            # endif rec 
+        #endwith session
+    # load_record_by_id
+
+    def load_record(self, recindex: int):
+        """
+        Load a record from the database.
+        NOTE: For this class, recindex is the id of the record to load, not the index.
+
+        Args:
+            recindex (int): The ID of the record to load.
+        """
+        self._load_record_by_id(recindex)
+    # load_record
+
+    def _navigate_to(self, rec_id: int):
+        """Navigate safely to a record (with save/discard prompt if dirty)."""
+        if not self.isit_OKToLeaveRecord():
+            return  # Cancel pressed → stay put
+
+        self._load_record_by_id(rec_id)
+    # _navigate_to
+
+    def get_prev_record_id(self, recID:int) -> int:
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            prev_id = session.query(func.max(self._primary_key)).where(self._primary_key < recID).scalar()
+        return prev_id
+    def get_next_record_id(self, recID:int) -> int:
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            next_id = session.query(func.min(self._primary_key)).where(self._primary_key > recID).scalar()
+        return next_id
+        
+    def on_loadfirst_clicked(self):
+        # determine minimum id in database and load it
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            min_id = session.query(func.min(self._primary_key)).scalar()
+            if min_id:
+                self._navigate_to(min_id)
+
+    def on_loadprev_clicked(self):
+        # determine previous id in database and load it
+        currID = getattr(self.currRec, self._primary_key.key)
+        prev_id = self.get_prev_record_id(currID)
+        if prev_id:
+            self._navigate_to(prev_id)
+
+    def on_loadnext_clicked(self):
+        # determine next id in database and load it
+        currID = getattr(self.currRec, self._primary_key.key)
+        next_id = self.get_next_record_id(currID)
+        if next_id:
+            self._navigate_to(next_id)
+
+    def on_loadlast_clicked(self):
+        # determine maximum id in database and load it
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            max_id = session.query(func.max(self._primary_key)).scalar()
+            if max_id:
+                self._navigate_to(max_id)
+
+    def load_record_by_field(self, field: str | Any, value: Any) -> None:
+        """
+        field may be either:
+          - a string (column name), or
+          - an ORM field object (MyModel.name).
+        """
+        if not self.isit_OKToLeaveRecord():
+            return  # Cancel pressed → stay put
+        
+        if isinstance(field, str):
+            orm_field = getattr(self._ORMmodel, field)
+        else:
+            orm_field = field
+
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            modl = self.ORMmodel()
+            assert modl is not None, "ORMmodel must be set before loading record"
+            rec = session.query(modl).filter(orm_field == value).first()
+            if rec is None:
+                self.showError(f"No Record with {orm_field.key} == {value}")
+                return
+            else:
+                # detach rec from session and make it the current record
+                session.expunge(rec)
+                self.currRec = rec
+                self.fillFormFromcurrRec()
+            # endif rec 
+        #endwith session
+    # load_record_by_field
+
+    @Slot()
+    def lookup_and_load(self, fld: str, value: Any):
+        value = value.get('text', value) if isinstance(value, dict) else (getattr(value, 'text', value) if hasattr(value, 'text') else value)
+        self.load_record_by_field(fld, value)
+    # lookup_CIMSNum
+   
+    ##########################################
+    ########    Update
+
+    @Slot()
+    # REVIEW THIS!!!
+    def changeField(self, wdgt, dbField, wdgt_value, force=False):
+        """
+        Called when a widget changes.
+        This no longer writes directly into the ORM object — adapters own that.
+        Neither does it Marks the widget/adapter dirty
+        Instead, it:
+          - Applies optional transforms
+          - Updates form-level dirty flag
+        """
+        # If adapter passed in, grab widget
+        widget = wdgt
+
+        if getattr(widget, "property", lambda x: False)("noedit"):
+            return
+
+        # Apply transformation hook if subclass defines one
+        transform_func = getattr(self, f"_transform_{dbField}", None)
+        if callable(transform_func):
+            wdgt_value = transform_func(wdgt_value)
+
+        # Update form dirty state
+        self.setDirty(widget, True)
+        # endif wdgt_value
+    # changeField
+
+    @Slot()
+    def on_save_clicked(self, *_):
+        """
+        Collects field values from adapters/subforms, writes them into currRec,
+        and persists via a short-lived session.
+        """
+        if not self.currRec:
+            return
+
+        try:
+            # Push data from form -> ORM object, except for subforms - they must come after the main record is saved
+            for fldName, fldDef in self.fieldDefs.items():
+                isSubFormElmnt = "subform_class" in fldDef
+                if not isSubFormElmnt:      # subforms handled after main record is saved
+                    widget = fldDef.get("widget")
+                    if widget:
+                        widget.saveToRecord(self.currRec)
+            # endfor fldDef in self.fieldDefs
+
+            # Persist using a short-lived session
+            ssnmkr = self.ssnmaker()
+            assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+            with ssnmkr(expire_on_commit=False) as session:
+                merged = session.merge(self.currRec)
+                session.flush()
+                session.refresh(merged)
+                
+                recID = getattr(merged, self._primary_key.key)   # no change for existing record; loads new id for a new one
+                # should I copy other fields, too?
+                
+                # session.expunge(self.currRec) # not needed, since self.currRec not bound to session
+                
+                session.commit()
+            # endwith session
+
+            # now handle subforms
+            for fldName, fldDef in self.fieldDefs.items():
+                isSubFormElmnt = "subform_class" in fldDef
+                if isSubFormElmnt:
+                    widget = fldDef.get("widget")
+                    if widget:
+                        widget.saveToRecord(self.currRec)
+            # endfor fldDef in self.fieldDefs
+            
+            # reload the record (repaints screen, gets db defaults and new id, if any)
+            self.repopLookups()
+            self._load_record_by_id(recID)
+
+            # all this not needed because of reload
+            # # Reset dirty flags (both form and adapters)
+            # for fldName, fldDef in self.fieldDefs.items():
+            #     widget = fldDef.get("widget")
+            #     if widget:
+            #         widget.setDirty(False)
+            # self.setDirty(self, False)
+
+            # # Clear new record flag
+            # assert not self.isNewRecord()
+            # self.showNewRecordFlag(False)
+
+        except Exception as e:
+            self.showError(str(e), "Error saving record")
+    # on_save_clicked
+    
+    ##########################################
+    ########    Delete
+
+    # TODO: confirm delete
+    @Slot()
+    def on_delete_clicked(self):
+        if not self.currRec:
+            return
+        
+        keyID = getattr(self.currRec, self._primary_key.key)
+
+        if not self.isit_OKToLeaveRecord():
+            return  # Cancel pressed → stay put
+
+        confirm = areYouSure(
+            self,
+            "Delete record",
+            f"Really delete record {keyID}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        # Actually delete
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        modl = self.ORMmodel()
+        assert modl is not None, "ORMmodel must be set before deleting record"
+        with ssnmkr() as session:
+            rec = session.get(modl, keyID)
+            if rec:
+                session.delete(rec)
+                session.commit()
+
+        self.repopLookups()
+        # Navigate to neighbor, or clear form if none
+        next_id = self.get_next_record_id(keyID)
+        prev_id = self.get_prev_record_id(keyID)
+        target_id = next_id or prev_id
+        if target_id:
+            self._load_record_by_id(target_id)
+        else:
+            self.initializeRec()
+            self.fillFormFromcurrRec()
+    # delete_record
+
+    # ##########################################
+    # ########    CRUD support
+
+    @Slot()
+    def setDirty(self, wdgt, dirty: bool = True):
+        # rethink - adapters handle their own dirty state
+        # so all that needs to be set here is self.dirty
+        # right?
+        
+        # better yet, self doesn't need to track its dirty state
+        # since  isDirty will poll children
+        
+        # keep an eye on the time the polling takes
+        # if it's excessive, find the best way to record child dirty states
+
+        # Enable save button if anything is dirty
+        btnCommit = getattr(self, 'btnCommit', None)
+        if isinstance(btnCommit, QPushButton):
+            btnCommit.setEnabled(self.isDirty())
+    # setFormDirty
+    
+    def isDirty(self) -> bool:
+        # poll children; if one is Dirty, form is Dirty
+        for FmElement in self.children():
+            if not isinstance(FmElement, cSimpRecFmElement_Base):
+                continue
+            elif FmElement.isDirty():
+                return True
+            else:
+                continue
+        #endfor FmElement in self.children():
+        
+        return False
+    # isFormDirty
+
 # cSimpleFormBase
 
 ################# may not be needed ...
