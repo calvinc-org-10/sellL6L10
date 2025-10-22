@@ -40,7 +40,7 @@ from cMenu.utils import (
 from app.database import app_Session
 # from cMenu.utils.cQdbFormWidgets import cSimpleRecordSubForm2
 
-class cSimpleFormBase(QWidget):
+class cSimpleRecordForm_Base(QWidget):
     _ORMmodel:Type[Any]|None = None
     _primary_key: Any
     _ssnmaker:sessionmaker[Session]|None = None
@@ -88,6 +88,9 @@ class cSimpleFormBase(QWidget):
 
        
     
+    ######################################################
+    ########    property and key widget getters/setters
+
     def ORMmodel(self):
         return self._ORMmodel
     def setORMmodel(self, model):
@@ -108,7 +111,10 @@ class cSimpleFormBase(QWidget):
     def setssnmaker(self,ssnmaker):
         self._ssnmaker = ssnmaker
     # get/set ssnmaker
-        
+
+    ######################################################
+    ########    Layout and field and Widget placement
+    
     def _buildFormLayout(self) -> tuple[QBoxLayout, QGridLayout, QBoxLayout|None]:
         # returns tuple (layoutMain, layoutForm, layoutButtons)
         raise NotImplementedError
@@ -302,7 +308,6 @@ class cSimpleFormBase(QWidget):
         raise NotImplementedError
     # _handleActionButton
 
-        
     def _finalizeMainLayout(self):
         assert isinstance(self.layoutMain, QBoxLayout), 'layoutMain must be a Box Layout'
         
@@ -320,7 +325,10 @@ class cSimpleFormBase(QWidget):
             self.layoutMain.addLayout(lyout)            #TODO: more flexibility in where status bar is placed
 
     # _finalizeMainLayout
-        
+
+    ######################################################
+    ########    Display 
+            
     def initialdisplay(self):
         self.initializeRec()
         self.on_loadfirst_clicked()
@@ -343,6 +351,30 @@ class cSimpleFormBase(QWidget):
         # TODO: choose whether to messageBox or status bar or both
     # showError
 
+    def fillFormFromcurrRec(self):
+        for fldDef in self.fieldDefs.values():
+            fld = fldDef.get("widget")
+            if fld:
+                fld.loadFromRecord(self.currRec)
+
+        self.showNewRecordFlag()
+        self.setDirty(False)
+    # fillFormFromRec
+
+    # TODO: wrap with fillFormFromcurrRec
+    # TODO: play with positioning of new record flag
+    def showNewRecordFlag(self) -> None:
+        self._newrecFlag.setVisible(self.isNewRecord())
+
+    def repopLookups(self) -> None:
+        """Repopulate all lookup widgets (e.g., after a save)."""
+        return
+        for lookupWidget in self._lookupFrmElements:
+            lookupWidget.repopulateChoices()
+
+    ##################################################
+    ########    Navigation 
+    
     def isit_OKToLeaveRecord(self) -> bool:
         """
         Check if the form is dirty. If so, prompt user.
@@ -372,92 +404,6 @@ class cSimpleFormBase(QWidget):
         else:  # Cancel
             return False
     # isit_OKToLeaveRecord
-
-    def fillFormFromcurrRec(self):
-        for fldDef in self.fieldDefs.values():
-            fld = fldDef.get("widget")
-            if fld:
-                fld.loadFromRecord(self.currRec)
-
-        self.showNewRecordFlag()
-        self.setDirty(False)
-    # fillFormFromRec
-
-    # TODO: wrap with fillFormFromcurrRec
-    # TODO: play with positioning of new record flag
-    def showNewRecordFlag(self) -> None:
-        self._newrecFlag.setVisible(self.isNewRecord())
-
-    def isNewRecord(self) -> bool:
-        return self.currRec is None or getattr(self.currRec, self._primary_key.key) is None
-            
-    def repopLookups(self) -> None:
-        """Repopulate all lookup widgets (e.g., after a save)."""
-        return
-        for lookupWidget in self._lookupFrmElements:
-            lookupWidget.repopulateChoices()
-
-    ##########################################
-    ########    Create
-
-    def initializeRec(self):
-        """
-        Initialize a new record with default values.
-
-        implementation should call fillFormFromcurrRec() after setting default values in self.currRec
-        """
-        modlType = self.ORMmodel()
-        assert modlType is not None, "ORMmodel must be set before initializing record"
-        self.currRec = modlType()
-    # initializeRec
-
-    def on_add_clicked(self):
-        """
-        Add a new record to the database: initialize, set defaults and save.
-        No, don't save. reserve that for the save button.
-        """
-        # if dirty, ask to save
-        if not self.isit_OKToLeaveRecord():
-            return
-        
-        self.initializeRec()
-        self.fillFormFromcurrRec()
-    # add_record
-    
-    ##########################################
-    ########    Read / Navigation
-
-    # # --- Lookup navigation ---
-    def _load_record_by_id(self, pk_val):
-        """Low-level load (assumes it's safe to replace current record)."""
-        ssnmkr = self.ssnmaker()
-        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
-        with ssnmkr() as session:
-            modl = self.ORMmodel()
-            assert modl is not None, "ORMmodel must be set before loading record"
-            rec = session.get(modl, pk_val)
-            if rec is None:
-                self.showError(f"No Record with id {pk_val}")
-                return
-            else:
-                # detach rec from session and make it the current record
-                session.expunge(rec)
-                self.currRec = rec
-                self.fillFormFromcurrRec()
-            # endif rec 
-        #endwith session
-    # load_record_by_id
-
-    def load_record(self, recindex: int):
-        """
-        Load a record from the database.
-        NOTE: For this class, recindex is the id of the record to load, not the index.
-
-        Args:
-            recindex (int): The ID of the record to load.
-        """
-        self._load_record_by_id(recindex)
-    # load_record
 
     def _navigate_to(self, rec_id: int):
         """Navigate safely to a record (with save/discard prompt if dirty)."""
@@ -511,6 +457,68 @@ class cSimpleFormBase(QWidget):
             max_id = session.query(func.max(self._primary_key)).scalar()
             if max_id:
                 self._navigate_to(max_id)
+
+    ##########################################
+    ########    Create
+
+    def initializeRec(self):
+        """
+        Initialize a new record with default values.
+
+        implementation should call fillFormFromcurrRec() after setting default values in self.currRec
+        """
+        modlType = self.ORMmodel()
+        assert modlType is not None, "ORMmodel must be set before initializing record"
+        self.currRec = modlType()
+    # initializeRec
+
+    def on_add_clicked(self):
+        """
+        Add a new record to the database: initialize, set defaults and save.
+        No, don't save. reserve that for the save button.
+        """
+        # if dirty, ask to save
+        if not self.isit_OKToLeaveRecord():
+            return
+        
+        self.initializeRec()
+        self.fillFormFromcurrRec()
+    # add_record
+    
+    ##########################################
+    ########    Read
+
+    # # --- Lookup navigation ---
+    def _load_record_by_id(self, pk_val):
+        """Low-level load (assumes it's safe to replace current record)."""
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            modl = self.ORMmodel()
+            assert modl is not None, "ORMmodel must be set before loading record"
+            rec = session.get(modl, pk_val)
+            if rec is None:
+                self.showError(f"No Record with id {pk_val}")
+                return
+            else:
+                # detach rec from session and make it the current record
+                session.expunge(rec)
+                self.currRec = rec
+                self.fillFormFromcurrRec()
+            # endif rec 
+        #endwith session
+    # load_record_by_id
+
+    def load_record(self, recindex: int):
+        """
+        Load a record from the database.
+        NOTE: For this class, recindex is the id of the record to load, not the index.
+
+        Args:
+            recindex (int): The ID of the record to load.
+        """
+        self._load_record_by_id(recindex)
+    # load_record
 
     def load_record_by_field(self, field: str | Any, value: Any) -> None:
         """
@@ -692,7 +700,10 @@ class cSimpleFormBase(QWidget):
     # delete_record
 
     # ##########################################
-    # ########    CRUD support
+    # ########    Record Status
+
+    def isNewRecord(self) -> bool:
+        return self.currRec is None or getattr(self.currRec, self._primary_key.key) is None
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):

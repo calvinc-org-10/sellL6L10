@@ -237,7 +237,7 @@ class WorkOrderPartsNeededSubForm(cSimpleRecordSubForm2):
     def deleteCurrentRecord(self, row):
         print(f"Delete row {row}")  # Replace with actual delete logic
 class WorkOrdersRecord(cSimpleRecordForm):
-    _model = WorkOrders
+    _ORMmodel = WorkOrders
     _ssnmaker = app_Session
     _formname = 'Work Orders'
     fieldDefs = {
@@ -257,15 +257,15 @@ class WorkOrdersRecord(cSimpleRecordForm):
 
     # see cSimpleRecordForm for details, methods, etc.
     
-    def _buildForm(self) -> None:
-        super()._buildForm()
+    def _finalizeMainLayout(self):
+        super()._finalizeMainLayout()    
         
         # after form is built, set up other widgets
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)   # or Raised, Plain
         self.layoutForm.addWidget(line, 7, 0, 1, 3)  # row, col, rowspan, colspan
-    # _buildForm
+    # _finalizeMainLayout
      
     @Slot()
     def lookup_CIMSNum(self, value):
