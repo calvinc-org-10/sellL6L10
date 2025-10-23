@@ -737,7 +737,7 @@ class cSimpleRecordForm_Base(QWidget):
     _ORMmodel:Type[Any]|None = None
     _primary_key: Any
     _ssnmaker:sessionmaker[Session]|None = None
-    currRec: Any
+    _currRec: Any
     _newrecFlag: QLabel
     pages: List = []
     fieldDefs: Dict[str, Dict[str, Any]] = {}
@@ -805,6 +805,12 @@ class cSimpleRecordForm_Base(QWidget):
     def setssnmaker(self,ssnmaker):
         self._ssnmaker = ssnmaker
     # get/set ssnmaker
+    
+    def currRec(self):
+        return self._currRec
+    def setcurrRec(self, rec):
+        self._currRec = rec
+    # get/set currRec
 
     ######################################################
     ########    Layout and field and Widget placement
@@ -1049,7 +1055,7 @@ class cSimpleRecordForm_Base(QWidget):
         for fldDef in self.fieldDefs.values():
             fld = fldDef.get("widget")
             if fld:
-                fld.loadFromRecord(self.currRec)
+                fld.loadFromRecord(self.currRec())
 
         self.showNewRecordFlag()
         self.setDirty(False)
@@ -1091,7 +1097,7 @@ class cSimpleRecordForm_Base(QWidget):
 
         elif choice == QMessageBox.StandardButton.No:
             # Discard changes -> reload current record fresh
-            if self.currRec:
+            if self.currRec():
                 self.fillFormFromcurrRec()
             return True
 
@@ -1134,16 +1140,18 @@ class cSimpleRecordForm_Base(QWidget):
 
     def on_loadprev_clicked(self):
         # determine previous id in database and load it
+        currRec = self.currRec()
         pKey = self.primary_key()
-        currID = getattr(self.currRec, pKey.key)
+        currID = getattr(currRec, pKey.key)
         prev_id = self.get_prev_record_id(currID)
         if prev_id:
             self._navigate_to(prev_id)
 
     def on_loadnext_clicked(self):
         # determine next id in database and load it
+        currRec = self.currRec()
         pKey = self.primary_key()
-        currID = getattr(self.currRec, pKey.key)
+        currID = getattr(currRec, pKey.key)
         next_id = self.get_next_record_id(currID)
         if next_id:
             self._navigate_to(next_id)
@@ -1169,7 +1177,7 @@ class cSimpleRecordForm_Base(QWidget):
         """
         modlType = self.ORMmodel()
         assert modlType is not None, "ORMmodel must be set before initializing record"
-        self.currRec = modlType()
+        self.setcurrRec(modlType())
     # initializeRec
 
     def on_add_clicked(self):
@@ -1203,7 +1211,7 @@ class cSimpleRecordForm_Base(QWidget):
             else:
                 # detach rec from session and make it the current record
                 session.expunge(rec)
-                self.currRec = rec
+                self.setcurrRec(rec)
                 self.fillFormFromcurrRec()
             # endif rec 
         #endwith session
@@ -1246,7 +1254,7 @@ class cSimpleRecordForm_Base(QWidget):
             else:
                 # detach rec from session and make it the current record
                 session.expunge(rec)
-                self.currRec = rec
+                self.setcurrRec(rec)
                 self.fillFormFromcurrRec()
             # endif rec 
         #endwith session
@@ -1294,7 +1302,8 @@ class cSimpleRecordForm_Base(QWidget):
         Collects field values from adapters/subforms, writes them into currRec,
         and persists via a short-lived session.
         """
-        if not self.currRec:
+        currRec = self.currRec()
+        if not currRec:
             return
 
         try:
@@ -1304,14 +1313,14 @@ class cSimpleRecordForm_Base(QWidget):
                 if not isSubFormElmnt:      # subforms handled after main record is saved
                     widget = fldDef.get("widget")
                     if widget:
-                        widget.saveToRecord(self.currRec)
+                        widget.saveToRecord(currRec)
             # endfor fldDef in self.fieldDefs
 
             # Persist using a short-lived session
             ssnmkr = self.ssnmaker()
             assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
             with ssnmkr(expire_on_commit=False) as session:
-                merged = session.merge(self.currRec)
+                merged = session.merge(currRec)
                 session.flush()
                 session.refresh(merged)
                 
@@ -1330,7 +1339,7 @@ class cSimpleRecordForm_Base(QWidget):
                 if isSubFormElmnt:
                     widget = fldDef.get("widget")
                     if widget:
-                        widget.saveToRecord(self.currRec)
+                        widget.saveToRecord(currRec)
             # endfor fldDef in self.fieldDefs
             
             # reload the record (repaints screen, gets db defaults and new id, if any)
@@ -1359,11 +1368,12 @@ class cSimpleRecordForm_Base(QWidget):
     # TODO: confirm delete
     @Slot()
     def on_delete_clicked(self):
-        if not self.currRec:
+        currRec = self.currRec()
+        if not currRec:
             return
         
         pKey = self.primary_key()
-        keyID = getattr(self.currRec, pKey.key)
+        keyID = getattr(currRec, pKey.key)
 
         if not self.isit_OKToLeaveRecord():
             return  # Cancel pressed → stay put
@@ -1406,7 +1416,8 @@ class cSimpleRecordForm_Base(QWidget):
 
     def isNewRecord(self) -> bool:
         pKey = self.primary_key()
-        return self.currRec is None or getattr(self.currRec, pKey.key) is None
+        currRec = self.currRec()
+        return currRec is None or getattr(currRec, pKey.key) is None
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
