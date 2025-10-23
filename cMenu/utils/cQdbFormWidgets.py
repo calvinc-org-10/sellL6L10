@@ -1169,13 +1169,13 @@ class cSimpleRecordForm_Base(QWidget):
     ##########################################
     ########    Create
 
-    def initializeRec(self):
+    def initializeRec(self, initializeTo=None):
         """
         Initialize a new record with default values.
 
         implementation should call fillFormFromcurrRec() after setting default values in self.currRec
         """
-        modlType = self.ORMmodel()
+        modlType = self.ORMmodel() if initializeTo is None else initializeTo
         assert modlType is not None, "ORMmodel must be set before initializing record"
         self.setcurrRec(modlType())
     # initializeRec
