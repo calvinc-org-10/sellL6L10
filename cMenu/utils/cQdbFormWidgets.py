@@ -1623,9 +1623,13 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
 # cSimpleRecordForm
 
 class cSimpleRecordSubForm(cSimpRecFmElement_Base):
+    # does not need to inherit from cSimpleRecordForm_Base
+    # since this is mainly wrapping a table with multiple records
     """
     Generic subform widget to handle a one-to-many relationship.
     Ex: parts_needed for a WorkOrder.
+    
+    Presents subrecords as a Table
 
     Args:
         ORMmodel (Type[Any]): ORM model for the subrecords
@@ -2101,6 +2105,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
     Generic subform widget to handle a one-to-many relationship.
     Ex: parts_needed for a WorkOrder.
 
+    Presents records in cSimpRecSbFmRec's
     Args:
         ORMmodel (Type[Any]): ORM model for the subrecords
         parentFK (InstrumentedAttribute): relationship FK field in the parent model
