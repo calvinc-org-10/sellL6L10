@@ -1650,7 +1650,7 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
 
 # cSimpleRecordForm
 
-class cSimpleRecordSubForm(cSimpRecFmElement_Base):
+class cSimpleRecordSubForm1(cSimpRecFmElement_Base):
     # does not need to inherit from cSimpleRecordForm_Base
     # since this is mainly wrapping a table with multiple records
     """
