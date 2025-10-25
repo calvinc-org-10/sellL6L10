@@ -780,8 +780,7 @@ class cSimpleRecordForm_Base(QWidget):
 
     # __init__
 
-       
-    
+
     ######################################################
     ########    property and key widget getters/setters
 
@@ -1870,7 +1869,7 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
         return
     # setDirty
 # cSimpRecSbFmRecord
-class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
+class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     """
     Generic subform widget to handle a one-to-many relationship.
     Ex: parts_needed for a WorkOrder.
@@ -1893,73 +1892,155 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
         parent=None
         ):
 
-        super().__init__(parent)
-
-        if not self._model:
-            if not ORMmodel:
-                raise ValueError("A model class must be provided either in the constructor or as a class attribute")
-            self._model = ORMmodel
-        self._primary_key = get_primary_key_column(self._model)
+        self.vwClass = viewClass
+        super().__init__(model=ORMmodel, ssnmaker=session_factory, parent=parent)
 
         pfk = parentFK if parentFK else getattr(self, '_parentFK', None)
         if not self._parentFK:
             if not parentFK:
                 raise ValueError("A parent FK must be provided either in the constructor or as a class attribute")
-        self._parentFK = getattr(self._model, pfk) if isinstance(pfk, str) else parentFK # type: ignore
-
-        if not self._ssnmaker:
-            if not session_factory:
-                raise ValueError("A sessionmaker must be provided either in the constructor or as a class attribute")
-            self._ssnmaker = session_factory
+        # you wrote the setter, so use it!!
+        self._parentFK = getattr(self._ORMmodel, pfk) if isinstance(pfk, str) else parentFK # type: ignore
 
         self._parentRec = None  # set by parent form when loading
         self._parentRecPK: Any  # set by parent form when loading
         self._childRecs:list = []
         self._deleted_childRecs:list = []
 
-        self.layoutMain = QVBoxLayout(self)
+    # __init__
+
+    ######################################################
+    ########    property and key widget getters/setters
+
+    def parentFK(self):
+        return self._parentFK
+    def setparentFK(self, pfk):
+        modl = self.ORMmodel()
+        if not modl:
+            raise ValueError("ORMmodel must be set before setting parentFK")
+        self._parentFK = getattr(modl, pfk) if isinstance(pfk, str) else pfk
+    # get/set parentFK
+
+    def parentRec(self):
+        return self._parentRec
+    def parentRecPK(self):
+        return self._parentRecPK
+    def setparentRec(self, rec):
+        self._parentRec = rec
+        self._parentRecPK = get_primary_key_column(rec.__class__)
+    # get/set parentFK
+
+
+    ######################################################
+    ########    Layout and field and Widget placement
+    
+    def _buildFormLayout(self) -> tuple[QBoxLayout, QGridLayout, QBoxLayout|None]:
+        layoutMain = QVBoxLayout(self)
+        layoutForm = QGridLayout()
+        layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
+        self._statusBar = QStatusBar(self)
+
+        viewClass = self.vwClass if hasattr(self, 'vwClass') else QListWidget
         self.dispArea = viewClass(parent=self)
+        layoutForm.addWidget(self.dispArea)
         # self.Tblmodel = SQLAlchemyTableModel(self._model, self._ssnmaker, literal(False), parent=self)
         # FIXMEFIXMEFIXME!!!
         # not needed? each record widget handles its own data
         # self.dispArea.setModel(self.Tblmodel)  # yhis shouldn't work - change to handle link table <-> Tblmodel internally - use _childRecs?
-        self.layoutMain.addWidget(self.dispArea)
+        # self.layoutMain.addWidget(self.dispArea)
 
+        return layoutMain, layoutForm, layoutButtons
+    # _buildFormLayout
+    
+    # def _finalizeMainLayout(self):
+    #     assert isinstance(self.layoutMain, QBoxLayout), 'layoutMain must be a Box Layout'
+        
+    #     lyout = getattr(self, 'layoutFormHdr', None)
+    #     if isinstance(lyout, QLayout):
+    #         self.layoutMain.addLayout(lyout)
+    #     lyout = getattr(self, 'layoutForm', None)
+    #     if isinstance(lyout, QLayout):
+    #         self.layoutMain.addLayout(lyout)
+    #     lyout = getattr(self, 'layoutButtons', None)
+    #     if isinstance(lyout, QLayout):
+    #         self.layoutMain.addLayout(lyout)
+    #     lyout = getattr(self, '_statusBar', None)
+    #     if isinstance(lyout, QLayout):
+    #         self.layoutMain.addLayout(lyout)            #TODO: more flexibility in where status bar is placed
+    # # _finalizeMainLayout
+
+    def _placeFields(self, lookupsAllowed: bool = True) -> None:
+        # field placement handled by _addDisplayRow, since they are placed in a list
+        return 
+    # _placeFields
+    
+    def _addActionButtons(self):
         # action buttons for add/remove
-        btnLayout = QHBoxLayout()
+        btnLayout = self.layoutButtons
+        assert isinstance(btnLayout, QBoxLayout), "layoutButtons must be a Box Layout"
         self.btnAdd = QPushButton("Add")
         self.btnDel = QPushButton("Delete")
         btnLayout.addWidget(self.btnAdd)
         btnLayout.addWidget(self.btnDel)
-        self.layoutMain.addLayout(btnLayout)
 
         self.btnAdd.clicked.connect(self.add_row)
         self.btnDel.clicked.connect(self.del_row)
-    # __init__
+    # _addActionButtons
 
-    def statusBar(self) -> QStatusBar|None:
-        """Get the status bar."""
-        return self.findChild(QStatusBar)
 
-    def showError(self, message: str, title: str = "Error") -> None:
-        """Show an error message box."""
-        QMessageBox.critical(self, title, message)
-        # use status bar to show error message
-        SB = self.statusBar()
-        SB.showMessage(f"Error: {message}") if SB else None
+    ######################################################
+    ########    Display 
+            
+    def initialdisplay(self):
+        # not used here - record passed in constructor
+        return
+    # initialdisplay()
 
-    # --- Lifecycle hooks ---
+    def _addDisplayRow(self, rec):
+        """Add a display row for the given record."""
+        # does NOT add to _childRecs - that must be done separately (document why)
+        wdgt = cSimpRecSbFmRecord(rec, parent=self)
+        QLWitm = QListWidgetItem()
+        QLWitm.setSizeHint(wdgt.sizeHint())
+        self.dispArea.addItem(QLWitm)
+        self.dispArea.setItemWidget(QLWitm, wdgt)
+    # _addDisplayRow
+
+
+    ##########################################
+    ########    Create
+
+    def add_row(self):
+        modl = self.ORMmodel()
+        assert modl is not None, "ORMmodel must be set before deleting record"
+        row = modl()
+        setattr(row, self.parentFK().key, getattr(self.parentRec(), self.parentRecPK().key, None))
+
+        self._childRecs.append(row)
+        self._addDisplayRow(row)
+    # add_row
+
+
+
+    ##########################################
+    ########    Read
+
     def loadFromRecord(self, rec):
         """Load subrecords for the given parent record."""
-        self._parentRec = rec
-        self._parentRecPK = get_primary_key_column(rec.__class__)
+        self.setparentRec(rec)
         self._childRecs.clear()
         self._deleted_childRecs.clear()
 
-        with self._ssnmaker() as session:
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        modl = self.ORMmodel()
+        assert modl is not None, "ORMmodel must be set before deleting record"
+        pfk = self.parentFK()
+        prikey = self.primary_key()
+        with ssnmkr() as session:
             rows = session.scalars(
-                select(self._model)
-                .filter(self._parentFK == getattr(rec, self._parentRecPK.key))
+                select(modl)
+                .filter(pfk == getattr(rec, prikey.key))
                 ).all()
             for r in rows:
                 session.expunge(r)
@@ -1974,32 +2055,33 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
 
         # self.Tblmodel.refresh(filter=(self._parentFK == getattr(rec, self._parentRecPK.key)))
     # loadFromRecord
-    def _addDisplayRow(self, rec):
-        """Add a display row for the given record."""
-        # does NOT add to _childRecs - that must be done separately (document why)
-        wdgt = cSimpRecSbFmRecord(rec, parent=self)
-        QLWitm = QListWidgetItem()
-        QLWitm.setSizeHint(wdgt.sizeHint())
-        self.dispArea.addItem(QLWitm)
-        self.dispArea.setItemWidget(QLWitm, wdgt)
-    # _addDisplayRow
+
+
+    ##########################################
+    ########    Update
 
     def saveToRecord(self, rec):
         """Save subrecords back to database."""
-        if not self._parentRec:
+        pRec = self.parentRec()
+        if not pRec:
             return
-        if self._parentRec != rec:
+        if pRec != rec:
             raise ValueError("Parent record mismatch on saveToRecord")
 
-        with self._ssnmaker() as session:
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        modl = self.ORMmodel()
+        assert modl is not None, "ORMmodel must be set before deleting record"
+        pfk = self.parentFK()
+        with ssnmkr() as session:
             # reattach new/edited
             for rec in self._childRecs:
-                setattr(rec, self._parentFK.key, getattr(self._parentRec, self._parentRecPK.key))
+                setattr(rec, pfk, getattr(pRec, self.parentRecPK().key))
                 session.merge(rec)
 
             # delete removed
             for rec in self._deleted_childRecs:
-                if getattr(rec, self._parentRecPK.key, None) is not None:
+                if getattr(rec, pfk.key, None) is not None:
                     obj = session.merge(rec)
                     session.delete(obj)
 
@@ -2008,18 +2090,13 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
 
         self._deleted_childRecs.clear()
 
-        self.loadFromRecord(self._parentRec)   # reload to refresh display area
+        self.loadFromRecord(pRec)   # reload to refresh display area
     # saveForParent
 
-    # --- Internal helpers ---
 
-    def add_row(self):
-        row = self._model()
-        setattr(row, self._parentFK.key, getattr(self._parentRec, self._parentRecPK.key, None))
 
-        self._childRecs.append(row)
-        self._addDisplayRow(row)
-    # add_row
+    ##########################################
+    ########    Delete
 
     #TODO: implement del_row
     def del_row(self):
@@ -2033,8 +2110,10 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
             # self.Tblmodel.removeRow(idx.row())
     # del_row
 
-    # ##########################################
-    # ########    CRUD support
+
+
+    ##########################################
+    ########    Record Status
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
@@ -2066,6 +2145,4 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
         return False
     # del_row
 
-    # TODO: implement idDirty, setDirty, etc
-        
 #endclass cSubRecordForm2

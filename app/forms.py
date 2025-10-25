@@ -18,7 +18,7 @@ from sqlalchemy import FromClause, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from cMenu.utils import (cQFmFldWidg, cQFmNameLabel, cDataList, cComboBoxFromDict, clearLayout, areYouSure, )
-from cMenu.utils import (cSimpleTableForm, cSimpleRecordForm, cSimpleRecordSubForm, )
+from cMenu.utils import (cSimpleTableForm, cSimpleRecordForm, cSimpleRecordSubForm1, )
 
 from app.database import app_Session
 from app.models import (WorkOrderPartsNeeded, WorkOrders, Parts, Projects, TagPrefixes, Scans, BoxConfigurations, L6L10sellRepositories)
