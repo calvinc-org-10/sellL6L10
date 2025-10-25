@@ -736,10 +736,14 @@ class cQFmLookupWidg(cSimpRecFmElement_Base):
 class cSimpleRecordForm_Base(QWidget):
     _ORMmodel:Type[Any]|None = None
     _primary_key: Any
-    _ssnmaker:sessionmaker[Session]|None = None
     _currRec: Any
     _newrecFlag: QLabel
+
+    _ssnmaker:sessionmaker[Session]|None = None
+
     pages: List = []
+    _tabindexTOtabname: dict[int, str] = {}
+    _tabnameTOtabindex: dict[str, int] = {}
     fieldDefs: Dict[str, Dict[str, Any]] = {}
     _lookupFrmElements: List[cQFmLookupWidg] = []
 
@@ -858,6 +862,13 @@ class cSimpleRecordForm_Base(QWidget):
         
         return layoutMain
     # _buildFormLayout
+
+    def _buildPages(self):
+        ...
+    # _buildPages
+    def FormPage(idx:int|str):
+        ...
+    # FormPage
     
     def _bindField(self, _fieldName: str, widget: QWidget) -> None:
         """Register field and connect to changeField."""
