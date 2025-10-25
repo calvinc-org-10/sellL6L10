@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QWidget,
-    QFrame, QVBoxLayout, QHBoxLayout, QGridLayout, QLayoutItem, 
+    QFrame, QLayout, QBoxLayout, QVBoxLayout, QHBoxLayout, QGridLayout, QLayoutItem, 
     QMessageBox, 
     QTableView, QHeaderView, 
     QLabel, QLineEdit,  QComboBox, QPushButton, QCheckBox, QTextEdit, QPlainTextEdit, QDateEdit, 
@@ -25,6 +25,7 @@ from sqlalchemy.orm import (Session, sessionmaker, )
 
 from .cQModels import (SQLAlchemyTableModel, )
 from .cQWidgets import (cDataList, cComboBoxFromDict, )
+from .messageBoxes import (areYouSure, )
 from .SQLAlcTools import (get_primary_key_column, )
 
 from app.database import app_Session
@@ -730,240 +731,135 @@ class cQFmLookupWidg(cSimpRecFmElement_Base):
 # endclass cQFmLookupWidg
 
 
-# * **`cSimpleRecordForm`** → abstract base.
-
-#   * Knows about the current record (`self.currRec`).
-#   * Owns the `formFields: dict[str, cQFmFldWidg]`.
-#   * Declares abstract hooks you *must* override:
-
-#     * `_buildForm(self) -> None`: where the subclass lays out its widgets.
-#     * `changeField(self, fld: cQFmFldWidg) -> None`: what to do when a field changes.
-#   * Provides generic helpers: `bindField()`, `getValue()`, `setValue()`, maybe `loadRecord()` / `saveRecord()`.
-#   * Provides the common action buttons (`add`, `save`, `delete`, `cancel`).
-
-# * **Subclass (e.g. `cWidgetMenuItem`)** → just implements `_buildForm` to declare widgets.
-
-#   * Doesn’t worry about buttons or record lifecycle; only about field arrangement and per-field behavior.
-
-# That way your `cSimpleRecordForm` handles **record lifecycle + button bar**, and your subclasses handle **field layout + wiring**.
-
-# So **the big win** is:
-
-# * `cSimpleRecordForm` owns record + buttons + formFields.
-# * Subclasses only worry about *which fields* and *how to lay them out*.
-
-# Here’s a bare-bones outline:
-
-# TODO: Handle foreign keys properly - let the children do the heavy lifting ??
 # TODO: Handle fields that need special massaging   - let the children do the heavy lifting ??
 # TODO: pretty up NEW RECORD FLAG
-class cSimpleRecordForm(QWidget):
-    """
-    UPDATE THIS DOCUMENTATION!! UPDATE ME!!
-    A simple record form for editing database records.
-
-    Args:
-        rec (SQLAlchemy Model Class Instance): The record to edit.
-        formname (str | None, optional): The name of the form. Defaults to None.
-        parent (QWidget | None, optional): The parent widget. Defaults to None.
-
-    Properties and Methods implemented by child classes:
-        _buildForm(self) -> None: where the subclass lays out its widgets.
-        changeField(self, fld: cQFmFldWidg) -> None: what to do when a field changes.
-        bindField(self, fld: cQFmFldWidg, get_value: Callable[[], Any], set_value: Callable[[Any], None]) -> None: bind a field to a record attribute.
-        loadRecord(self) -> None: load the current record into the form fields.
-        saveRecord(self) -> None: save the form field values back to the current record.
-
-    Properties:
-        formFields (dict[str, cQFmFldWidg]): The form fields in the record.
-        currRec (Any): The current record being edited.
-
-    Methods:
-        getValue(self, fld: cQFmFldWidg) -> Any: Get the value of a form field.
-        setValue(self, fld: cQFmFldWidg, value: Any) -> None: Set the value of a form field.
-
-    Returns:
-        _type_: _description_
-    """
-    _model: Type[Any]  # the ORM model class
-    _primary_key: Any  # the ORM PK column (InstrumentedAttribute)
-    _ssnmaker: sessionmaker[Session]
-    _formname = None
-    fieldDefs: dict[str, dict[str, Any]] = {}
-    currRec: Any
-    _lookupFrmElements: List = []
+class cSimpleRecordForm_Base(QWidget):
+    _ORMmodel:Type[Any]|None = None
+    _primary_key: Any
+    _ssnmaker:sessionmaker[Session]|None = None
+    _currRec: Any
+    _newrecFlag: QLabel
+    pages: List = []
+    fieldDefs: Dict[str, Dict[str, Any]] = {}
+    _lookupFrmElements: List[cQFmLookupWidg] = []
 
     def __init__(self, 
         model: Type[Any]|None = None, 
-        formname: str|None = None, 
         ssnmaker: sessionmaker[Session] | None = None, 
+        
         parent: QWidget | None = None
         ):
-        """
-        Initialize the form with a record and optional name.
-
-        Args:
-            rec (SQLAlchemy Model Class Instance): The record to edit.
-            formname (str | None, optional): The name of the form. Defaults to None.
-            parent (QWidget | None, optional): The parent widget. Defaults to None.
-        """
+        # super init
         super().__init__(parent)
-    
-        if not self._model:
+ 
+        # set model, primary key
+        if not self._ORMmodel:
             if not model:
                 raise ValueError("A model class must be provided either in the constructor or as a class attribute")
-            self._model = model
-        self._primary_key = get_primary_key_column(self._model)
-
-        if not self._formname:
-            self._formname = formname if formname else 'Form'
+            self.setORMmodel(model)
+        self.setPrimary_key()
+        
+        # set ssnmaker
         if not self._ssnmaker:
             if not ssnmaker:
                 raise ValueError("A sessionmaker must be provided either in the constructor or as a class attribute")
-            self._ssnmaker = ssnmaker
+            self.setssnmaker(ssnmaker)
 
-        self.layoutMain = QVBoxLayout(self)
-        self.layoutForm = QGridLayout()
-        self.layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
-        self._statusBar = QStatusBar(self)
+        self.layoutMain, self.layoutForm, self.layoutButtons = self._buildFormLayout()
 
-        self.layoutFormHdr = QHBoxLayout()
-        lblFormName = cQFmNameLabel(self.tr(self._formname), self)
-        self.layoutFormHdr.addWidget(lblFormName)
-        
-        self._newrecFlag = QLabel("New Record", self)
-        fontNewRec = QFont()
-        fontNewRec.setBold(True)
-        fontNewRec.setPointSize(10)
-        fontNewRec.setItalic(True)
-        self._newrecFlag.setFont(fontNewRec)
-        self._newrecFlag.setStyleSheet("color: red;")
-        self.layoutFormHdr.addWidget(self._newrecFlag)
-        self._newrecFlag.setVisible(False)
-        
-        self.setWindowTitle(self.tr(self._formname))
-        
         # Let subclass build its widgets into self.layoutForm
-        self._buildForm()
+        self._placeFields()
 
-        # Add buttons (always the same)
+        # Add buttons
         self._addActionButtons()
 
         # Finalize layout
-        self.layoutMain.addLayout(self.layoutFormHdr)
-        self.layoutMain.addLayout(self.layoutForm)
-        self.layoutMain.addLayout(self.layoutButtons)
-        self.layoutMain.addWidget(self._statusBar)      #TODO: more flexibility in where status bar is placed
+        self._finalizeMainLayout()
 
-        self.initializeRec()
-        self.on_loadfirst_clicked()
-        
-        self.showNewRecordFlag(self.isNewRecord())
+        self.initialdisplay()
 
-    # init
+    # __init__
 
-    def statusBar(self) -> QStatusBar|None:
-        """Get the status bar."""
-        return self.findChild(QStatusBar)
 
-    def showError(self, message: str, title: str = "Error") -> None:
-        """Show an error message box."""
-        QMessageBox.critical(self, title, message)
-        # use status bar to show error message
-        SB = self.statusBar()
-        SB.showMessage(f"Error: {message}") if SB else None
+    ######################################################
+    ########    property and key widget getters/setters
 
-        # TODO: choose whether to messageBox or status bar or both
+    def ORMmodel(self):
+        return self._ORMmodel
+    def setORMmodel(self, model):
+        self._ORMmodel = model
+        self.setPrimary_key()
+    def primary_key(self):
+        return self._primary_key
+    def setPrimary_key(self):
+        model = self.ORMmodel()
+        if model is None:
+            raise Exception('ORMmodel must be set first')
+        # model is now narrowed to a non-None Type[Any]
+        self._primary_key = get_primary_key_column(model)
+    # get/set ORFMmodel/primary_key
 
-    def _addActionButtons(self, 
-            layoutHorizontal: bool = True, 
-            NavActions: list[tuple[str, QIcon]]|None = None,
-            CRUDActions: list[tuple[str, QIcon]]|None = None,
-            ) -> None:
-        """Add action buttons to the form.
-        """
-
-        _iconlib = qtawesome.icon
-        dfltNavActions = [
-                ("First", _iconlib("mdi.page-first")),
-                ("Previous", _iconlib("mdi.arrow-left-bold")),
-                ("Next", _iconlib("mdi.arrow-right-bold")),
-                ("Last", _iconlib("mdi.page-last")),
-        ]
-        dfltCRUDActionsMain = [
-                ("Add", _iconlib("mdi.plus")),
-                ("Save", _iconlib("mdi.content-save")),
-                ("Delete", _iconlib("mdi.delete")),
-                ("Cancel", _iconlib("mdi.cancel")),
-        ]
-        dfltCRUDActionsSub = [
-                ("Add", _iconlib("mdi.plus")),
-                ("Save", _iconlib("mdi.content-save")),
-                ("Delete", _iconlib("mdi.delete")),
-        ]
-
-        NavActns = NavActions if NavActions is not None else dfltNavActions
-        CRUDActns = CRUDActions if CRUDActions is not None else dfltCRUDActionsMain
-
-        if layoutHorizontal:
-            self.layoutButtons = QHBoxLayout()
-        else:
-            self.layoutButtons = QVBoxLayout()
-
-        # Navigation
-        innerNavLayout = QHBoxLayout()
-        for label, icon in NavActns:
-            btn = QPushButton(label, self)
-            btn.setIcon(icon)
-            btn.clicked.connect(lambda _, l=label: self._handleAction(l))
-            innerNavLayout.addWidget(btn)
-
-            if label == "Save":
-                self.btnCommit = btn
-        # CRUD
-        innerCRUDLayout = QHBoxLayout()
-        for label, icon in CRUDActns:
-            btn = QPushButton(label, self)
-            btn.setIcon(icon)
-            btn.clicked.connect(lambda _, l=label: self._handleAction(l))
-            innerCRUDLayout.addWidget(btn)
-
-            if label == "Save":
-                self.btnCommit = btn
-
-        self.layoutButtons.addLayout(innerNavLayout)
-        if layoutHorizontal:
-            self.layoutButtons.addSpacing(20)
-        self.layoutButtons.addLayout(innerCRUDLayout)
-    # _addNavButtons
+    def ssnmaker(self):
+        return self._ssnmaker
+    def setssnmaker(self,ssnmaker):
+        self._ssnmaker = ssnmaker
+    # get/set ssnmaker
     
-    # TODO: do structure similar to _addActionButtons to allow custom button sets and define Action handlers
-    def _handleAction(self, action: str) -> None:
-        # Generic action dispatch — override if needed
-        action = action.lower()
-        if action == "first":
-            self.on_loadfirst_clicked()
-        elif action == "previous":
-            self.on_loadprev_clicked()
-        elif action == "next":
-            self.on_loadnext_clicked()
-        elif action == "last":
-            self.on_loadlast_clicked()
-        elif action == "add":
-            self.on_add_clicked()
-        elif action == "save":
-            self.on_save_clicked()
-        elif action == "delete":
-            self.on_delete_clicked()
-        elif action == "cancel":
-            self.on_cancel_clicked()
-        else:
-            print(f"Unknown action: {action}")
-            self.showError(f"Unknown action: {action}")
-        #endif action
-    # _handleAction
+    def currRec(self):
+        return self._currRec
+    def setcurrRec(self, rec):
+        self._currRec = rec
+    # get/set currRec
 
-    def bindField(self, _fieldName: str, widget: QWidget) -> None:
+    ######################################################
+    ########    Layout and field and Widget placement
+    
+    def _buildFormLayout(self) -> tuple[QBoxLayout, QGridLayout, QBoxLayout|None]:
+        """
+        Build the main layout, form layout, and button layout. Must be implemented by subclasses.
+        Creates and configures:
+        1. layoutMain: the main layout for the form (QVBoxLayout or QHBoxLayout)
+        2. layoutForm: the grid layout for the form fields  (QGridLayout)
+        3. layoutButtons: the layout for the action buttons (QHBoxLayout or QVBoxLayout)
+
+        Form elements created here, but not returned:
+        4. _statusBar: the status bar for the form (QStatusBar)
+        5. _newrecFlag: the "New Record" flag label (QLabel)
+        6. layoutFormHdr: the header layout for the form (QHBoxLayout)
+        7. lblFormName: the form name label (cQFmNameLabel)
+        8. Set the window title to the form name
+        
+        Returns:
+            tuple (layoutMain:QBoxLayout, layoutForm:QGridLayout, layoutButtons:QBoxLayout|None)
+        
+        """
+        raise NotImplementedError
+
+        # layoutMain = QVBoxLayout(self)
+        # self.layoutForm = QGridLayout()
+        # self.layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
+        # self._statusBar = QStatusBar(self)
+
+        # self.layoutFormHdr = QHBoxLayout()
+        # lblFormName = cQFmNameLabel(self.tr(self._formname), self)
+        # self.layoutFormHdr.addWidget(lblFormName)
+        
+        # self._newrecFlag = QLabel("New Record", self)
+        # fontNewRec = QFont()
+        # fontNewRec.setBold(True)
+        # fontNewRec.setPointSize(10)
+        # fontNewRec.setItalic(True)
+        # self._newrecFlag.setFont(fontNewRec)
+        # self._newrecFlag.setStyleSheet("color: red;")
+        # self.layoutFormHdr.addWidget(self._newrecFlag)
+        # self._newrecFlag.setVisible(False)
+        
+        # self.setWindowTitle(self.tr(self._formname))
+        
+        return layoutMain
+    # _buildFormLayout
+    
+    def _bindField(self, _fieldName: str, widget: QWidget) -> None:
         """Register field and connect to changeField."""
         fldDef = self.fieldDefs.get(_fieldName)
         if not fldDef:
@@ -971,20 +867,19 @@ class cSimpleRecordForm(QWidget):
         lookup = (_fieldName[0] == '@')
         fieldName = _fieldName if not lookup else _fieldName[1:]
         subFormElmnt = hasattr(fldDef, 'subform_class')
-        
+
         fldDef["widget"] = widget
 
         if isinstance(widget, cQFmFldWidg) and not lookup and not subFormElmnt:
             widget.setModelField(fieldName)
-        
+
         if isinstance(widget, cQFmFldWidg):
             widget.signalFldChanged.connect(lambda *_: self.changeField(widget, widget.modelField(), widget.Value()))
-        elif isinstance(widget, cQFmLookupWidg):
+        elif isinstance(widget, cQFmLookupWidg):        # lookup widgets not supported in subforms (for now)
             widget.signalLookupSelected.connect(lambda *_: self.changeField(widget, widget._lookup_field, widget.Value()))
         #endif isinstance(widget)
     # bindField
-
-    def _buildForm(self) -> None:
+    def _placeFields(self, lookupsAllowed: bool = True) -> None:
         """
         Build widgets and wrap them into _cSimpRecFmElmnt_Base adapters.
         Each fieldDef ends up with:
@@ -1006,6 +901,11 @@ class cSimpleRecordForm(QWidget):
             else:
                 widget.setProperty(attr, value)
         # _apply_opt_attr
+
+        ssnmkr = self.ssnmaker()
+        ssnmkr = ssnmkr if ssnmkr else app_Session
+        mdl = self.ORMmodel()
+        assert mdl is not None, "ORMmodel must be set before placing fields"
     
         for _fldName, fldDef in self.fieldDefs.items():
             widget = None
@@ -1031,32 +931,35 @@ class cSimpleRecordForm(QWidget):
 
             # --- Subform case ---
             if isSubFormElmnt:
-                widget = SubFormCls(session_factory=self._ssnmaker, parent=self)
+                widget = SubFormCls(session_factory=ssnmkr, parent=self)
                 if not isinstance(widget, cSimpRecFmElement_Base):
-                    raise TypeError(f'class {SubFormCls.__name__} must inherit from _cSimpRecFmElement_Base')
+                    raise TypeError(f'class {SubFormCls.__name__} must inherit from cSimpRecFmElement_Base')
             # --- Scalar case ---
             elif isLookup:
-                if widgType not in (cDataList, cComboBoxFromDict):
-                    widgType = cDataList  # force it to be a cDataList
-                widget = cQFmLookupWidg(
-                    session_factory=self._ssnmaker if self._ssnmaker else app_Session,
-                    model=self._model,
-                    lookup_field=modlFld,
-                    lblText=lblText,
-                    alignlblText=alignlblText,
-                    lookupWidgType=widgType,
-                    choices=choices,
-                    parent=self
-                )
-                if lookupHandler:
-                    if isinstance(lookupHandler, str):
-                        if not hasattr(self, lookupHandler):
-                            raise AttributeError(f"lookupHandler method '{lookupHandler}' not found in {self.__class__.__name__}")
-                        lookupHandler = getattr(self, lookupHandler)
-                    if not callable(lookupHandler):
-                        raise TypeError("lookupHandler must be a callable function or a string name of a method")
-                    widget.signalLookupSelected.connect(lookupHandler)
-                self._lookupFrmElements.append(widget)
+                if lookupsAllowed:
+                    if widgType not in (cDataList, cComboBoxFromDict):
+                        widgType = cDataList  # force it to be a cDataList
+                    widget = cQFmLookupWidg(
+                        session_factory=ssnmkr,
+                        model=mdl,
+                        lookup_field=modlFld,
+                        lblText=lblText,
+                        alignlblText=alignlblText,
+                        lookupWidgType=widgType,
+                        choices=choices,
+                        parent=self
+                    )
+                    if lookupHandler:
+                        if isinstance(lookupHandler, str):
+                            if not hasattr(self, lookupHandler):
+                                raise AttributeError(f"lookupHandler method '{lookupHandler}' not found in {self.__class__.__name__}")
+                            lookupHandler = getattr(self, lookupHandler)
+                        if not callable(lookupHandler):
+                            raise TypeError("lookupHandler must be a callable function or a string name of a method")
+                        widget.signalLookupSelected.connect(lookupHandler)
+                    self._lookupFrmElements.append(widget)
+                    # endif lookupHandler
+                # endif lookupsAllowed
             else:
                 widget = cQFmFldWidg(
                     widgType=widgType,
@@ -1102,7 +1005,7 @@ class cSimpleRecordForm(QWidget):
             #endif isinstance(widget, (cQFmFldWidg, cQFmLookupWidg)):
 
             # Save references
-            self.bindField(_fldName, widget)
+            self._bindField(_fldName, widget)
 
             # Place in layout
             if isinstance(pos, tuple) and len(pos) >= 2:
@@ -1112,19 +1015,81 @@ class cSimpleRecordForm(QWidget):
                 lambda dirty, w=widget: self.setDirty(w, dirty)
             )
         # endfor fldDef in self.fieldDefs
-    # _buildForm
+    # _placeFields
 
-    def on_cancel_clicked(self):
-        #for now, just close form
-        self.close()
-    # cancel_record
+    def _addActionButtons(self):
+        raise NotImplementedError
+    # _addActionButtons
+    def _handleActionButton(self, action: str) -> None:
+        raise NotImplementedError
+    # _handleActionButton
+
+    def _finalizeMainLayout(self):
+        assert isinstance(self.layoutMain, QBoxLayout), 'layoutMain must be a Box Layout'
+        
+        lyout = getattr(self, 'layoutFormHdr', None)
+        if isinstance(lyout, QLayout):
+            self.layoutMain.addLayout(lyout)
+        lyout = getattr(self, 'layoutForm', None)
+        if isinstance(lyout, QLayout):
+            self.layoutMain.addLayout(lyout)
+        lyout = getattr(self, 'layoutButtons', None)
+        if isinstance(lyout, QLayout):
+            self.layoutMain.addLayout(lyout)
+        lyout = getattr(self, '_statusBar', None)
+        if isinstance(lyout, QLayout):
+            self.layoutMain.addLayout(lyout)            #TODO: more flexibility in where status bar is placed
+
+    # _finalizeMainLayout
+
+    ######################################################
+    ########    Display 
+            
+    def initialdisplay(self):
+        self.initializeRec()
+        self.on_loadfirst_clicked()
+        
+        self.showNewRecordFlag()
+    # initialdisplay()
+
+    def statusBar(self) -> QStatusBar|None:
+        """Get the status bar."""
+        return self.findChild(QStatusBar)
+    # statusBar
+
+    def showError(self, message: str, title: str = "Error") -> None:
+        """Show an error message box."""
+        QMessageBox.critical(self, title, message)
+        # use status bar to show error message
+        SB = self.statusBar()
+        SB.showMessage(f"Error: {message}") if SB else None
+
+        # TODO: choose whether to messageBox or status bar or both
+    # showError
+
+    def fillFormFromcurrRec(self):
+        for fldDef in self.fieldDefs.values():
+            fld = fldDef.get("widget")
+            if fld:
+                fld.loadFromRecord(self.currRec())
+
+        self.showNewRecordFlag()
+        self.setDirty(False)
+    # fillFormFromRec
+
+    # TODO: wrap with fillFormFromcurrRec
+    # TODO: play with positioning of new record flag
+    def showNewRecordFlag(self) -> None:
+        self._newrecFlag.setVisible(self.isNewRecord())
 
     def repopLookups(self) -> None:
-        for lkupwdgt in self._lookupFrmElements:
-            lkupwdgt.refreshChoices()
+        """Repopulate all lookup widgets (e.g., after a save)."""
+        return
+        for lookupWidget in self._lookupFrmElements:
+            lookupWidget.repopulateChoices()
 
-    def isNewRecord(self) -> bool:
-        return self.currRec is None or getattr(self.currRec, self._primary_key.key) is None
+    ##################################################
+    ########    Navigation 
     
     def isit_OKToLeaveRecord(self) -> bool:
         """
@@ -1134,13 +1099,13 @@ class cSimpleRecordForm(QWidget):
         if not self.isDirty():
             return True
 
-        choice = QMessageBox.question(
+        choice = areYouSure(
             self,
             "Unsaved changes",
             "You have unsaved changes. Save before continuing?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Yes,
-        )
+            )
 
         if choice == QMessageBox.StandardButton.Yes:
             self.on_save_clicked()
@@ -1148,7 +1113,7 @@ class cSimpleRecordForm(QWidget):
 
         elif choice == QMessageBox.StandardButton.No:
             # Discard changes -> reload current record fresh
-            if self.currRec:
+            if self.currRec():
                 self.fillFormFromcurrRec()
             return True
 
@@ -1156,17 +1121,79 @@ class cSimpleRecordForm(QWidget):
             return False
     # isit_OKToLeaveRecord
 
+    def _navigate_to(self, rec_id: int):
+        """Navigate safely to a record (with save/discard prompt if dirty)."""
+        if not self.isit_OKToLeaveRecord():
+            return  # Cancel pressed → stay put
+
+        self._load_record_by_id(rec_id)
+    # _navigate_to
+
+    def get_prev_record_id(self, recID:int) -> int:
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        pKey = self.primary_key()
+        with ssnmkr() as session:
+            prev_id = session.query(func.max(pKey)).where(pKey < recID).scalar()
+        return prev_id
+    def get_next_record_id(self, recID:int) -> int:
+        ssnmkr = self.ssnmaker()
+        pKey = self.primary_key()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            next_id = session.query(func.min(pKey)).where(pKey > recID).scalar()
+        return next_id
+        
+    def on_loadfirst_clicked(self):
+        # determine minimum id in database and load it
+        ssnmkr = self.ssnmaker()
+        pKey = self.primary_key()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            min_id = session.query(func.min(pKey)).scalar()
+            if min_id:
+                self._navigate_to(min_id)
+
+    def on_loadprev_clicked(self):
+        # determine previous id in database and load it
+        currRec = self.currRec()
+        pKey = self.primary_key()
+        currID = getattr(currRec, pKey.key)
+        prev_id = self.get_prev_record_id(currID)
+        if prev_id:
+            self._navigate_to(prev_id)
+
+    def on_loadnext_clicked(self):
+        # determine next id in database and load it
+        currRec = self.currRec()
+        pKey = self.primary_key()
+        currID = getattr(currRec, pKey.key)
+        next_id = self.get_next_record_id(currID)
+        if next_id:
+            self._navigate_to(next_id)
+
+    def on_loadlast_clicked(self):
+        # determine maximum id in database and load it
+        ssnmkr = self.ssnmaker()
+        pKey = self.primary_key()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            max_id = session.query(func.max(pKey)).scalar()
+            if max_id:
+                self._navigate_to(max_id)
+
     ##########################################
     ########    Create
 
-    def initializeRec(self):
+    def initializeRec(self, initializeTo=None):
         """
         Initialize a new record with default values.
 
         implementation should call fillFormFromcurrRec() after setting default values in self.currRec
         """
-        self.currRec = self._model()  
-        # raise NotImplementedError
+        modlType = self.ORMmodel() if initializeTo is None else initializeTo
+        assert modlType is not None, "ORMmodel must be set before initializing record"
+        self.setcurrRec(modlType())
     # initializeRec
 
     def on_add_clicked(self):
@@ -1180,11 +1207,31 @@ class cSimpleRecordForm(QWidget):
         
         self.initializeRec()
         self.fillFormFromcurrRec()
-        self.showNewRecordFlag(True)
     # add_record
     
     ##########################################
-    ########    Read / Navigation
+    ########    Read
+
+    # # --- Lookup navigation ---
+    def _load_record_by_id(self, pk_val):
+        """Low-level load (assumes it's safe to replace current record)."""
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            modl = self.ORMmodel()
+            assert modl is not None, "ORMmodel must be set before loading record"
+            rec = session.get(modl, pk_val)
+            if rec is None:
+                self.showError(f"No Record with id {pk_val}")
+                return
+            else:
+                # detach rec from session and make it the current record
+                session.expunge(rec)
+                self.setcurrRec(rec)
+                self.fillFormFromcurrRec()
+            # endif rec 
+        #endwith session
+    # load_record_by_id
 
     def load_record(self, recindex: int):
         """
@@ -1197,68 +1244,6 @@ class cSimpleRecordForm(QWidget):
         self._load_record_by_id(recindex)
     # load_record
 
-    def get_prev_record_id(self, recID:int) -> int:
-        with self._ssnmaker() as session:
-            prev_id = session.query(func.max(self._primary_key)).where(self._primary_key < recID).scalar()
-        return prev_id
-    def get_next_record_id(self, recID:int) -> int:
-        with self._ssnmaker() as session:
-            next_id = session.query(func.min(self._primary_key)).where(self._primary_key > recID).scalar()
-        return next_id
-        
-    def on_loadfirst_clicked(self):
-        # determine minimum id in database and load it
-        with self._ssnmaker() as session:
-            min_id = session.query(func.min(self._primary_key)).scalar()
-            if min_id:
-                self._navigate_to(min_id)
-
-    def on_loadprev_clicked(self):
-        # determine previous id in database and load it
-        currID = getattr(self.currRec, self._primary_key.key)
-        prev_id = self.get_prev_record_id(currID)
-        if prev_id:
-            self._navigate_to(prev_id)
-
-    def on_loadnext_clicked(self):
-        # determine next id in database and load it
-        currID = getattr(self.currRec, self._primary_key.key)
-        next_id = self.get_next_record_id(currID)
-        if next_id:
-            self._navigate_to(next_id)
-
-    def on_loadlast_clicked(self):
-        # determine maximum id in database and load it
-        with self._ssnmaker() as session:
-            max_id = session.query(func.max(self._primary_key)).scalar()
-            if max_id:
-                self._navigate_to(max_id)
-
-    # # --- Lookup navigation ---
-    def _navigate_to(self, rec_id: int):
-        """Navigate safely to a record (with save/discard prompt if dirty)."""
-        if not self.isit_OKToLeaveRecord():
-            return  # Cancel pressed → stay put
-
-        self._load_record_by_id(rec_id)
-    # _navigate_to
-
-    def _load_record_by_id(self, pk_val):
-        """Low-level load (assumes it's safe to replace current record)."""
-        with self._ssnmaker() as session:
-            rec = session.get(self._model, pk_val)
-            if rec is None:
-                self.showError(f"No Record with id {pk_val}")
-                return
-            else:
-                # detach rec from session and make it the current record
-                session.expunge(rec)
-                self.currRec = rec
-                self.fillFormFromcurrRec()
-            # endif rec 
-        #endwith session
-    # load_record_by_id
-
     def load_record_by_field(self, field: str | Any, value: Any) -> None:
         """
         field may be either:
@@ -1269,48 +1254,39 @@ class cSimpleRecordForm(QWidget):
             return  # Cancel pressed → stay put
         
         if isinstance(field, str):
-            orm_field = getattr(self._model, field)
+            orm_field = getattr(self._ORMmodel, field)
         else:
             orm_field = field
 
-        with self._ssnmaker() as session:
-            rec = session.query(self._model).filter(orm_field == value).first()
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        with ssnmkr() as session:
+            modl = self.ORMmodel()
+            assert modl is not None, "ORMmodel must be set before loading record"
+            rec = session.query(modl).filter(orm_field == value).first()
             if rec is None:
                 self.showError(f"No Record with {orm_field.key} == {value}")
                 return
             else:
                 # detach rec from session and make it the current record
                 session.expunge(rec)
-                self.currRec = rec
+                self.setcurrRec(rec)
                 self.fillFormFromcurrRec()
             # endif rec 
         #endwith session
     # load_record_by_field
-
-    def fillFormFromcurrRec(self):
-        for fldDef in self.fieldDefs.values():
-            fld = fldDef.get("widget")
-            if fld:
-                fld.loadFromRecord(self.currRec)
-
-        self.showNewRecordFlag(self.isNewRecord())
-        self.setDirty(self, False)
-    # fillFormFromRec
 
     @Slot()
     def lookup_and_load(self, fld: str, value: Any):
         value = value.get('text', value) if isinstance(value, dict) else (getattr(value, 'text', value) if hasattr(value, 'text') else value)
         self.load_record_by_field(fld, value)
     # lookup_CIMSNum
-        
-    # TODO: play with positioning of new record flag
-    def showNewRecordFlag(self, show: bool) -> None:
-        self._newrecFlag.setVisible(show)
-
+   
     ##########################################
     ########    Update
 
     @Slot()
+    # REVIEW THIS!!!
     def changeField(self, wdgt, dbField, wdgt_value, force=False):
         """
         Called when a widget changes.
@@ -1342,7 +1318,8 @@ class cSimpleRecordForm(QWidget):
         Collects field values from adapters/subforms, writes them into currRec,
         and persists via a short-lived session.
         """
-        if not self.currRec:
+        currRec = self.currRec()
+        if not currRec:
             return
 
         try:
@@ -1352,16 +1329,19 @@ class cSimpleRecordForm(QWidget):
                 if not isSubFormElmnt:      # subforms handled after main record is saved
                     widget = fldDef.get("widget")
                     if widget:
-                        widget.saveToRecord(self.currRec)
+                        widget.saveToRecord(currRec)
             # endfor fldDef in self.fieldDefs
 
             # Persist using a short-lived session
-            with self._ssnmaker(expire_on_commit=False) as session:
-                merged = session.merge(self.currRec)
+            ssnmkr = self.ssnmaker()
+            assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+            with ssnmkr(expire_on_commit=False) as session:
+                merged = session.merge(currRec)
                 session.flush()
                 session.refresh(merged)
                 
-                recID = getattr(merged, self._primary_key.key)   # no change for existing record; loads new id for a new one
+                pKey = self.primary_key()
+                recID = getattr(merged, pKey.key)   # no change for existing record; loads new id for a new one
                 # should I copy other fields, too?
                 
                 # session.expunge(self.currRec) # not needed, since self.currRec not bound to session
@@ -1375,7 +1355,7 @@ class cSimpleRecordForm(QWidget):
                 if isSubFormElmnt:
                     widget = fldDef.get("widget")
                     if widget:
-                        widget.saveToRecord(self.currRec)
+                        widget.saveToRecord(currRec)
             # endfor fldDef in self.fieldDefs
             
             # reload the record (repaints screen, gets db defaults and new id, if any)
@@ -1396,23 +1376,25 @@ class cSimpleRecordForm(QWidget):
 
         except Exception as e:
             self.showError(str(e), "Error saving record")
-    # save_record
-
+    # on_save_clicked
+    
     ##########################################
     ########    Delete
 
     # TODO: confirm delete
     @Slot()
     def on_delete_clicked(self):
-        if not self.currRec:
+        currRec = self.currRec()
+        if not currRec:
             return
         
-        keyID = getattr(self.currRec, self._primary_key.key)
+        pKey = self.primary_key()
+        keyID = getattr(currRec, pKey.key)
 
         if not self.isit_OKToLeaveRecord():
             return  # Cancel pressed → stay put
 
-        confirm = QMessageBox.question(
+        confirm = areYouSure(
             self,
             "Delete record",
             f"Really delete record {keyID}?",
@@ -1423,8 +1405,12 @@ class cSimpleRecordForm(QWidget):
             return
 
         # Actually delete
-        with self._ssnmaker() as session:
-            rec = session.get(self._model, keyID)
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        modl = self.ORMmodel()
+        assert modl is not None, "ORMmodel must be set before deleting record"
+        with ssnmkr() as session:
+            rec = session.get(modl, keyID)
             if rec:
                 session.delete(rec)
                 session.commit()
@@ -1437,19 +1423,17 @@ class cSimpleRecordForm(QWidget):
         if target_id:
             self._load_record_by_id(target_id)
         else:
-            self.make_currRecEmpty()
+            self.initializeRec()
+            self.fillFormFromcurrRec()
     # delete_record
 
-    def make_currRecEmpty(self):
-        # replace with an empty record
-        # assume this is an intentional call - don't check currRec.isDirty
-        self.currRec = self._model()
-        self.setDirty(self, False)
-        self.fillFormFromcurrRec()
-    # makeCurrecEmpty
-
     # ##########################################
-    # ########    CRUD support
+    # ########    Record Status
+
+    def isNewRecord(self) -> bool:
+        pKey = self.primary_key()
+        currRec = self.currRec()
+        return currRec is None or getattr(currRec, pKey.key) is None
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
@@ -1464,7 +1448,9 @@ class cSimpleRecordForm(QWidget):
         # if it's excessive, find the best way to record child dirty states
 
         # Enable save button if anything is dirty
-        self.btnCommit.setEnabled(self.isDirty())
+        btnCommit = getattr(self, 'btnCommit', None)
+        if isinstance(btnCommit, QPushButton):
+            btnCommit.setEnabled(self.isDirty())
     # setFormDirty
     
     def isDirty(self) -> bool:
@@ -1480,12 +1466,197 @@ class cSimpleRecordForm(QWidget):
         
         return False
     # isFormDirty
+
+# cSimpleFormBase
+
+# class cSimpleRecordForm(QWidget):
+class cSimpleRecordForm(cSimpleRecordForm_Base):
+    """
+    UPDATE THIS DOCUMENTATION!! UPDATE ME!!
+    A simple record form for editing database records.
+
+    Args:
+        rec (SQLAlchemy Model Class Instance): The record to edit.
+        formname (str | None, optional): The name of the form. Defaults to None.
+        parent (QWidget | None, optional): The parent widget. Defaults to None.
+
+    Properties and Methods implemented by child classes:
+        _buildForm(self) -> None: where the subclass lays out its widgets.
+        changeField(self, fld: cQFmFldWidg) -> None: what to do when a field changes.
+        bindField(self, fld: cQFmFldWidg, get_value: Callable[[], Any], set_value: Callable[[Any], None]) -> None: bind a field to a record attribute.
+        loadRecord(self) -> None: load the current record into the form fields.
+        saveRecord(self) -> None: save the form field values back to the current record.
+
+    Properties:
+        formFields (dict[str, cQFmFldWidg]): The form fields in the record.
+        currRec (Any): The current record being edited.
+
+    Methods:
+        getValue(self, fld: cQFmFldWidg) -> Any: Get the value of a form field.
+        setValue(self, fld: cQFmFldWidg, value: Any) -> None: Set the value of a form field.
+
+    Returns:
+        _type_: _description_
+    """
+    _formname = None
+
+    def __init__(self, 
+        model: Type[Any]|None = None, 
+        formname: str|None = None, 
+        ssnmaker: sessionmaker[Session] | None = None, 
+        parent: QWidget | None = None
+        ):
+        """
+        Initialize the form with a record and optional name.
+
+        Args:
+            rec (SQLAlchemy Model Class Instance): The record to edit.
+            formname (str | None, optional): The name of the form. Defaults to None.
+            parent (QWidget | None, optional): The parent widget. Defaults to None.
+        """
+        if not self._formname:
+            self._formname = formname if formname else 'Form'
+
+        super().__init__(model=model, ssnmaker=ssnmaker, parent=parent)
+    
+    # init
+
+    def _buildFormLayout(self) -> tuple[QBoxLayout, QGridLayout, QBoxLayout|None]:
+        # returns tuple (layoutMain, layoutForm, layoutButtons)
+
+        layoutMain = QVBoxLayout(self)
+        layoutForm = QGridLayout()
+        layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
+        self._statusBar = QStatusBar(self)
+
+        self.layoutFormHdr = QHBoxLayout()
+        assert isinstance(self._formname, str), "_formname must be set before building form layout"
+        lblFormName = cQFmNameLabel(self.tr(self._formname), self)
+        self.layoutFormHdr.addWidget(lblFormName)
+        
+        self._newrecFlag = QLabel("New Record", self)
+        fontNewRec = QFont()
+        fontNewRec.setBold(True)
+        fontNewRec.setPointSize(10)
+        fontNewRec.setItalic(True)
+        self._newrecFlag.setFont(fontNewRec)
+        self._newrecFlag.setStyleSheet("color: red;")
+        self.layoutFormHdr.addWidget(self._newrecFlag)
+        # self.showNewRecordFlag() # done when record displayed
+        
+        self.setWindowTitle(self.tr(self._formname))
+        
+        return  layoutMain, layoutForm, layoutButtons
+    # _buildFormLayout
+
+    def _addActionButtons(self, 
+            layoutHorizontal: bool = True, 
+            NavActions: list[tuple[str, QIcon]]|None = None,
+            CRUDActions: list[tuple[str, QIcon]]|None = None,
+            ) -> None:
+        """Add action buttons to the form.
+        """
+
+        _iconlib = qtawesome.icon
+        dfltNavActions = [
+                ("First", _iconlib("mdi.page-first")),
+                ("Previous", _iconlib("mdi.arrow-left-bold")),
+                ("Next", _iconlib("mdi.arrow-right-bold")),
+                ("Last", _iconlib("mdi.page-last")),
+        ]
+        dfltCRUDActionsMain = [
+                ("Add", _iconlib("mdi.plus")),
+                ("Save", _iconlib("mdi.content-save")),
+                ("Delete", _iconlib("mdi.delete")),
+                ("Cancel", _iconlib("mdi.cancel")),
+        ]
+        dfltCRUDActionsSub = [
+                ("Add", _iconlib("mdi.plus")),
+                ("Save", _iconlib("mdi.content-save")),
+                ("Delete", _iconlib("mdi.delete")),
+        ]
+
+        NavActns = NavActions if NavActions is not None else dfltNavActions
+        CRUDActns = CRUDActions if CRUDActions is not None else dfltCRUDActionsMain
+
+        if layoutHorizontal:
+            self.layoutButtons = QHBoxLayout()
+        else:
+            self.layoutButtons = QVBoxLayout()
+
+        # Navigation
+        innerNavLayout = QHBoxLayout()
+        for label, icon in NavActns:
+            btn = QPushButton(label, self)
+            btn.setIcon(icon)
+            btn.clicked.connect(lambda _, l=label: self._handleActionButton(l))
+            innerNavLayout.addWidget(btn)
+
+            if label == "Save":
+                self.btnCommit = btn
+        # CRUD
+        innerCRUDLayout = QHBoxLayout()
+        for label, icon in CRUDActns:
+            btn = QPushButton(label, self)
+            btn.setIcon(icon)
+            btn.clicked.connect(lambda _, l=label: self._handleActionButton(l))
+            innerCRUDLayout.addWidget(btn)
+
+            if label == "Save":
+                self.btnCommit = btn
+
+        self.layoutButtons.addLayout(innerNavLayout)
+        if layoutHorizontal:
+            self.layoutButtons.addSpacing(20)
+        self.layoutButtons.addLayout(innerCRUDLayout)
+    # _addNavButtons
+    
+    # TODO: do structure similar to _addActionButtons to allow custom button sets and define Action handlers
+    #   like - duh - a dictionary
+    def _handleActionButton(self, action: str) -> None:
+        # Generic action dispatch — override if needed
+        action = action.lower()
+        if action == "first":
+            self.on_loadfirst_clicked()
+        elif action == "previous":
+            self.on_loadprev_clicked()
+        elif action == "next":
+            self.on_loadnext_clicked()
+        elif action == "last":
+            self.on_loadlast_clicked()
+        elif action == "add":
+            self.on_add_clicked()
+        elif action == "save":
+            self.on_save_clicked()
+        elif action == "delete":
+            self.on_delete_clicked()
+        elif action == "cancel":
+            self.on_cancel_clicked()
+        else:
+            print(f"Unknown action: {action}")
+            self.showError(f"Unknown action: {action}")
+        #endif action
+    # _handleAction
+
+    def on_cancel_clicked(self):
+        #for now, just close form
+        self.close()
+    # cancel_record
+
+    def repopLookups(self) -> None:
+        for lkupwdgt in self._lookupFrmElements:
+            lkupwdgt.refreshChoices()
+
 # cSimpleRecordForm
 
-class cSimpleRecordSubForm(cSimpRecFmElement_Base):
+class cSimpleRecordSubForm1(cSimpRecFmElement_Base):
+    # does not need to inherit from cSimpleRecordForm_Base
+    # since this is mainly wrapping a table with multiple records
     """
     Generic subform widget to handle a one-to-many relationship.
     Ex: parts_needed for a WorkOrder.
+    
+    Presents subrecords as a Table
 
     Args:
         ORMmodel (Type[Any]): ORM model for the subrecords
@@ -1609,28 +1780,34 @@ class cSimpleRecordSubForm(cSimpRecFmElement_Base):
             self.Tblmodel.removeRow(idx.row())
 # cSimpleRecordSubForm
 
-class cSimpRecSbFmRecord(cSimpRecFmElement_Base):
+class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 # class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm):
 # nope, don't inherit from cSimpleRecordForm - that double-defines layouts, buttons, etc. Copy what we need from it instead.
-    # the records contained within the ListWidget
-    def __init__(self, rec: Any, parent:"cSimpleRecordSubForm2|None"=None):
-        self._model = rec.__class__
-        if not self._model:
-            raise ValueError(f"{rec} should be a record with an ORM class")
-        self._primary_key = get_primary_key_column(self._model)
 
-        self._ssnmaker = getattr(parent, '_ssnmaker', None) # type: ignore
+    def __init__(self, rec: Any, parent:"cSimpleRecordSubForm2|None"=None):
+        self._ORMmodel = rec.__class__  # cannot use setORMmodel here because super not yet initialized
+        if not self._ORMmodel:
+            raise ValueError(f"{rec} should be a record with an ORM class")
+        # self._primary_key = get_primary_key_column(self._ORMmodel)
+
+        self._ssnmaker = getattr(parent, '_ssnmaker', None) 
         if not self._ssnmaker:
             raise ValueError(f"A sessionmaker must be provided defined in the parent form {parent}")
 
-        self.fieldDefs = getattr(parent, 'fieldDefs', {})  # type: ignore
+        self.fieldDefs = getattr(parent, 'fieldDefs', {})  
 
         super().__init__(parent=parent)
 
-        self.setParent(parent)
+        # initialdisplay(self):
+        self.setcurrRec(rec)
+        self.loadFromRecord(rec)
+        # self.showNewRecordFlag(self.isNewRecord())
+    # __init__
 
-        self.layoutMain = QVBoxLayout(self)
-        self.layoutForm = QGridLayout()
+    def _buildFormLayout(self) -> tuple[QBoxLayout, QGridLayout, QBoxLayout | None]:
+
+        layoutMain = QVBoxLayout(self)
+        layoutForm = QGridLayout()
         self._statusBar = QStatusBar(self)
 
         self._newrecFlag = QLabel("New Rec", self)
@@ -1640,303 +1817,39 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base):
         fontNewRec.setItalic(True)
         self._newrecFlag.setFont(fontNewRec)
         self._newrecFlag.setStyleSheet("color: red;")
-        self.layoutMain.addWidget(self._newrecFlag) # at top for visibility - different from main form
-        self._newrecFlag.setVisible(False)
+        layoutMain.addWidget(self._newrecFlag) # at top for visibility - different from main form
 
-        # Let subclass build its widgets into self.layoutForm
-        self._buildForm()
+        return layoutMain, layoutForm, None
+    # _buildFormLayout
 
-        # Finalize layout
-        self.layoutMain.addLayout(self.layoutForm)
-        self.layoutMain.addWidget(self._statusBar)      #TODO: more flexibility in where status bar is placed
+    def initialdisplay(self):
+        # this is a noop here since record is passed in constructor
+        return
+    # initialdisplay()
 
-        self.currRec = rec
-        self.loadFromRecord(rec)
-        self.showNewRecordFlag(self.isNewRecord())
-    # __init__
+    #############################################################
+    ########    overrides of cSimpleRecordForm_Base methods
+    #############################################################
 
-    #######################################################
-    ########    stuff copied from cSimpleRecordForm
-    #######################################################
+    def _placeFields(self, lookupsAllowed: bool = False) -> None:
+        return super()._placeFields(lookupsAllowed = False)
+    # _placeFields
+    
+    def _addActionButtons(self):
+        # no navigation buttons for subrecords
+        return
+    # _addActionButtons
+    def _handleActionButton(self, action: str) -> None:
+        # no action buttons for subrecords
+        return
+    # _handleAction
 
-    def statusBar(self) -> QStatusBar|None:
-        """Get the status bar."""
-        return self.findChild(QStatusBar)
-
-    def showError(self, message: str, title: str = "Error") -> None:
-        """Show an error message box."""
-        QMessageBox.critical(self, title, message)
-        # use status bar to show error message
-        SB = self.statusBar()
-        SB.showMessage(f"Error: {message}") if SB else None
-
-        # TODO: choose whether to messageBox or status bar or both
-
-    def bindField(self, _fieldName: str, widget: QWidget) -> None:
-        """Register field and connect to changeField."""
-        fldDef = self.fieldDefs.get(_fieldName)
-        if not fldDef:
-            raise KeyError(f"Field '{_fieldName}' not found in fieldDefs")
-        lookup = (_fieldName[0] == '@')
-        fieldName = _fieldName if not lookup else _fieldName[1:]
-        subFormElmnt = hasattr(fldDef, 'subform_class')
-
-        fldDef["widget"] = widget
-
-        if isinstance(widget, cQFmFldWidg) and not lookup and not subFormElmnt:
-            widget.setModelField(fieldName)
-
-        if isinstance(widget, cQFmFldWidg):
-            widget.signalFldChanged.connect(lambda *_: self.changeField(widget, widget.modelField(), widget.Value()))
-        # elif isinstance(widget, cQFmLookupWidg):        # lookup widgets not supported in subforms (for now)
-        #     widget.signalLookupSelected.connect(lambda *_: self.changeField(widget, widget._lookup_field, widget.Value()))
-        #endif isinstance(widget)
-    # bindField
-
-    def _buildForm(self) -> None:
-        """
-        Build widgets and wrap them into _cSimpRecFmElmnt_Base adapters.
-        Each fieldDef ends up with:
-            - "widget": the actual Qt widget
-        """
-
-        def _apply_optional_attrib(widget, attr, value):
-            """
-            helper function for setting optional attributes
-
-            Args:
-                widget (_type_): _description_
-                attr (_type_): _description_
-                value (_type_): _description_
-            """
-            if value is None: return
-            if hasattr(widget, attr):
-                getattr(widget, attr)(value)
-            else:
-                widget.setProperty(attr, value)
-        # _apply_opt_attr
-
-        for _fldName, fldDef in self.fieldDefs.items():
-            widget = None
-
-            # _fldName indicates a lookup field if the field name starts with '@'
-            # lookup will be the boolean flag
-            # fldName is the actual field name
-            isLookup = (_fldName[0] == '@')
-            fldName = _fldName if not isLookup else _fldName[1:]
-            SubFormCls = fldDef.get("subform_class", None)
-            isSubFormElmnt = (SubFormCls is not None)
-
-            lookupHandler = fldDef.get('lookupHandler', None)
-            lblText = fldDef.get('label', fldName)
-            widgType = fldDef.get('widgetType', QLineEdit)
-            alignlblText = fldDef.get('align', Qt.AlignmentFlag.AlignLeft)
-            choices = fldDef.get('choices', None)
-            initval = fldDef.get('initval', '')
-            lblChkBxYesNo = fldDef.get('lblChkBxYesNo', None)
-            focusPolicy = fldDef.get('focusPolicy', Qt.FocusPolicy.ClickFocus if (isLookup or isSubFormElmnt) else None)
-            modlFld = fldName
-            pos = fldDef.get('position', None)
-
-            # --- Subform case ---
-            if isSubFormElmnt:
-                widget = SubFormCls(session_factory=self._ssnmaker, parent=self)
-                if not isinstance(widget, cSimpRecFmElement_Base):
-                    raise TypeError(f'class {SubFormCls.__name__} must inherit from _cSimpRecFmElement_Base')
-            # --- Scalar case ---
-            elif isLookup:
-                # lookup widgets not supported in subforms (for now)
-                pass
-                # if widgType not in (cDataList, cComboBoxFromDict):
-                #     widgType = cDataList  # force it to be a cDataList
-                # widget = cQFmLookupWidg(
-                #     session_factory=self._ssnmaker if self._ssnmaker else app_Session,
-                #     model=self._model,
-                #     lookup_field=modlFld,
-                #     lblText=lblText,
-                #     alignlblText=alignlblText,
-                #     lookupWidgType=widgType,
-                #     choices=choices,
-                #     parent=self
-                # )
-                # if lookupHandler:
-                #     if isinstance(lookupHandler, str):
-                #         if not hasattr(self, lookupHandler):
-                #             raise AttributeError(f"lookupHandler method '{lookupHandler}' not found in {self.__class__.__name__}")
-                #         lookupHandler = getattr(self, lookupHandler)
-                #     if not callable(lookupHandler):
-                #         raise TypeError("lookupHandler must be a callable function or a string name of a method")
-                #     widget.signalLookupSelected.connect(lookupHandler)
-                # self._lookupFrmElements.append(widget)
-            else:
-                widget = cQFmFldWidg(
-                    widgType=widgType,
-                    lblText=lblText,
-                    lblChkBxYesNo=lblChkBxYesNo,
-                    alignlblText=alignlblText,
-                    modlFld=modlFld,
-                    choices=choices,
-                    initval=initval,
-                    parent=self
-                )
-            #endif subform vs scalar
-            if widget is None:
-                raise ValueError(f"Failed to create widget for field '{fldName}'")
-            if focusPolicy:
-                widget.setFocusPolicy(focusPolicy)
-
-            # if isinstance(widget, (cQFmFldWidg, cQFmLookupWidg)):   # lookup widgets not supported in subforms (for now)
-            if isinstance(widget, (cQFmFldWidg, )):   # lookup widgets not supported in subforms (for now)
-                # TODO: convert this to use _apply_opt_attr
-                # optional field attributes
-                W = widget._wdgt
-                optAttributes = [
-                    ('noedit', 'setProperty', W.setProperty),                                                                   # type: ignore
-                    ('readonly', 'setReadOnly', W.setReadOnly if hasattr(W, 'setReadOnly') else W.setProperty),                 # type: ignore
-                    ('frame', 'setFrame', W.setFrame if hasattr(W, 'setFrame') else W.setProperty),                             # type: ignore
-                    ('maximumWidth', 'setMaximumWidth', W.setMaximumWidth if hasattr(W, 'setMaximumWidth') else W.setProperty), # type: ignore
-                    ('focusPolicy', 'setFocusPolicy', W.setFocusPolicy if hasattr(W, 'setFocusPolicy') else W.setProperty),     # type: ignore
-                    ('tooltip', 'setToolTip', W.setToolTip if hasattr(W, 'setToolTip') else W.setProperty),                     # type: ignore
-                ]
-                for attr, method_name, method in optAttributes:
-                    attrVal = fldDef.get(attr, None)
-                    if method_name == 'setProperty' or method is W.setProperty:
-                        W.setProperty(attr, attrVal) if attrVal is not None else None
-                    elif attrVal is not None:
-                        method(attrVal) if hasattr(W, method_name) else W.setProperty(attr, attrVal) # type: ignore
-                    #endif attrVal
-                #endfor attr, method_name, method in optAttributes
-
-                # other optional attributes
-                attrVal = fldDef.get('bgColor', None)
-                if attrVal is not None:
-                    W.setStyleSheet(f"background-color: {attrVal};") if hasattr(W, 'setStyleSheet') else W.setProperty('bgColor', attrVal) # type: ignore
-            #endif isinstance(widget, (cQFmFldWidg, cQFmLookupWidg)):
-
-            # Save references
-            self.bindField(_fldName, widget)
-
-            # Place in layout
-            if isinstance(pos, tuple) and len(pos) >= 2:
-                self.layoutForm.addWidget(widget, *pos)
-
-            widget.dirtyChanged.connect(
-                lambda dirty: self.setDirty(dirty)
-            )
-        # endfor fldDef in self.fieldDefs
-    # _buildForm
-
-    # TODO: play with positioning of new record flag
-    def showNewRecordFlag(self, show: bool) -> None:
-        self._newrecFlag.setVisible(show)
-
-    def isNewRecord(self) -> bool:
-        return self.currRec is None or getattr(self.currRec, self._primary_key.key) is None
-
-    def fillFormFromcurrRec(self):
-        for fldDef in self.fieldDefs.values():
-            fld = fldDef.get("widget")
-            if fld:
-                fld.loadFromRecord(self.currRec)
-
-        self.showNewRecordFlag(self.isNewRecord())
-        self.setDirty(False)
-    # fillFormFromRec
-
-    def changeField(self, wdgt, dbField, wdgt_value, force=False):
-        """
-        Called when a widget changes.
-        This no longer writes directly into the ORM object — adapters own that.
-        Neither does it Marks the widget/adapter dirty
-        Instead, it:
-          - Applies optional transforms
-          - Updates form-level dirty flag
-        """
-        # If adapter passed in, grab widget
-        widget = wdgt
-
-        if getattr(widget, "property", lambda x: False)("noedit"):
-            return
-
-        # Apply transformation hook if subclass defines one
-        transform_func = getattr(self, f"_transform_{dbField}", None)
-        if callable(transform_func):
-            wdgt_value = transform_func(wdgt_value)
-
-        # Update form dirty state
-        self.setDirty(widget, True)
-        # endif wdgt_value
-    # changeField
-
-    @Slot()
-    def on_save_clicked(self, *_):
-        """
-        Collects field values from adapters/subforms, writes them into currRec,
-        and persists via a short-lived session.
-        """
-        if not self.currRec:
-            return
-
-        try:
-            # Push data from form -> ORM object, except for subforms - they must come after the main record is saved
-            for fldName, fldDef in self.fieldDefs.items():
-                isSubFormElmnt = "subform_class" in fldDef
-                if not isSubFormElmnt:      # subforms handled later
-                    widget = fldDef.get("widget")
-                    if widget:
-                        widget.saveToRecord(self.currRec)
-            # endfor fldDef in self.fieldDefs
-
-            # Persist using a short-lived session
-            assert self._ssnmaker is not None, "_ssnmaker (sessionmaker) is not set"
-            with self._ssnmaker(expire_on_commit=False) as session:
-                merged = session.merge(self.currRec)
-                session.flush()
-                session.refresh(merged)
-
-                recID = getattr(merged, self._primary_key.key)   # no change for existing record; loads new id for a new one
-                # should I copy other fields, too?
-
-                # session.expunge(self.currRec) # not needed, since self.currRec not bound to session
-
-                session.commit()
-            # endwith session
-
-            # doublecheck that self.currRec has the new ID, if it was a new record
-
-            # now handle subforms
-            for fldName, fldDef in self.fieldDefs.items():
-                isSubFormElmnt = "subform_class" in fldDef
-                if isSubFormElmnt:
-                    widget = fldDef.get("widget")
-                    if widget:
-                        widget.saveToRecord(self.currRec)
-            # endfor fldDef in self.fieldDefs
-
-            # reload the record (repaints screen, gets db defaults and new id, if any)
-            self.fillFormFromcurrRec()
-
-            # all this not needed because of reload
-            # # Reset dirty flags (both form and adapters)
-            # for fldName, fldDef in self.fieldDefs.items():
-            #     widget = fldDef.get("widget")
-            #     if widget:
-            #         widget.setDirty(False)
-            # self.setDirty(self, False)
-
-            # # Clear new record flag
-            # assert not self.isNewRecord()
-            # self.showNewRecordFlag(False)
-
-        except Exception as e:
-            self.showError(str(e), "Error saving record")
-    # save_record
-
-    ###########################################
-    ###########################################
 
     def loadFromRecord(self, rec: object) -> None:
         """Fill widget from ORM record."""
+        currRec = self.currRec()
+        if currRec != rec:
+            self.setcurrRec(rec)
         self.fillFormFromcurrRec()
     # loadFromRecord
 
@@ -1951,16 +1864,17 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base):
     # # isDirty
         
 
-    # def setDirty(self, dirty: bool = True, sendSignal:bool = True) -> None:
-    #     """Mark the field/subform as dirty."""
-    #     pass
-    # # setDirty
+    def setDirty(self, dirty: bool = True, sendSignal:bool = True) -> None:
+        """Mark the field/subform as dirty."""
+        return
+    # setDirty
 # cSimpRecSbFmRecord
-class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
+class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     """
     Generic subform widget to handle a one-to-many relationship.
     Ex: parts_needed for a WorkOrder.
 
+    Presents records in cSimpRecSbFmRec's
     Args:
         ORMmodel (Type[Any]): ORM model for the subrecords
         parentFK (InstrumentedAttribute): relationship FK field in the parent model
@@ -1971,80 +1885,162 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
 
 # NEXT: make viewClass QListWidget (was QTableView)
     def __init__(self,
-        model: Type[Any]|None = None,
+        ORMmodel: Type[Any]|None = None,
         parentFK: Any = None,
         session_factory: sessionmaker[Session] | None = None,
         viewClass: Type[QListWidget] = QListWidget,
         parent=None
         ):
 
-        super().__init__(parent)
-
-        if not self._model:
-            if not model:
-                raise ValueError("A model class must be provided either in the constructor or as a class attribute")
-            self._model = model
-        self._primary_key = get_primary_key_column(self._model)
+        self.vwClass = viewClass
+        super().__init__(model=ORMmodel, ssnmaker=session_factory, parent=parent)
 
         pfk = parentFK if parentFK else getattr(self, '_parentFK', None)
         if not self._parentFK:
             if not parentFK:
                 raise ValueError("A parent FK must be provided either in the constructor or as a class attribute")
-        self._parentFK = getattr(self._model, pfk) if isinstance(pfk, str) else parentFK # type: ignore
-
-        if not self._ssnmaker:
-            if not session_factory:
-                raise ValueError("A sessionmaker must be provided either in the constructor or as a class attribute")
-            self._ssnmaker = session_factory
+        # you wrote the setter, so use it!!
+        self._parentFK = getattr(self._ORMmodel, pfk) if isinstance(pfk, str) else parentFK # type: ignore
 
         self._parentRec = None  # set by parent form when loading
         self._parentRecPK: Any  # set by parent form when loading
         self._childRecs:list = []
         self._deleted_childRecs:list = []
 
-        self.layoutMain = QVBoxLayout(self)
+    # __init__
+
+    ######################################################
+    ########    property and key widget getters/setters
+
+    def parentFK(self):
+        return self._parentFK
+    def setparentFK(self, pfk):
+        modl = self.ORMmodel()
+        if not modl:
+            raise ValueError("ORMmodel must be set before setting parentFK")
+        self._parentFK = getattr(modl, pfk) if isinstance(pfk, str) else pfk
+    # get/set parentFK
+
+    def parentRec(self):
+        return self._parentRec
+    def parentRecPK(self):
+        return self._parentRecPK
+    def setparentRec(self, rec):
+        self._parentRec = rec
+        self._parentRecPK = get_primary_key_column(rec.__class__)
+    # get/set parentFK
+
+
+    ######################################################
+    ########    Layout and field and Widget placement
+    
+    def _buildFormLayout(self) -> tuple[QBoxLayout, QGridLayout, QBoxLayout|None]:
+        layoutMain = QVBoxLayout(self)
+        layoutForm = QGridLayout()
+        layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
+        self._statusBar = QStatusBar(self)
+
+        viewClass = self.vwClass if hasattr(self, 'vwClass') else QListWidget
         self.dispArea = viewClass(parent=self)
+        layoutForm.addWidget(self.dispArea)
         # self.Tblmodel = SQLAlchemyTableModel(self._model, self._ssnmaker, literal(False), parent=self)
         # FIXMEFIXMEFIXME!!!
         # not needed? each record widget handles its own data
         # self.dispArea.setModel(self.Tblmodel)  # yhis shouldn't work - change to handle link table <-> Tblmodel internally - use _childRecs?
-        self.layoutMain.addWidget(self.dispArea)
+        # self.layoutMain.addWidget(self.dispArea)
 
+        return layoutMain, layoutForm, layoutButtons
+    # _buildFormLayout
+    
+    # def _finalizeMainLayout(self):
+    #     assert isinstance(self.layoutMain, QBoxLayout), 'layoutMain must be a Box Layout'
+        
+    #     lyout = getattr(self, 'layoutFormHdr', None)
+    #     if isinstance(lyout, QLayout):
+    #         self.layoutMain.addLayout(lyout)
+    #     lyout = getattr(self, 'layoutForm', None)
+    #     if isinstance(lyout, QLayout):
+    #         self.layoutMain.addLayout(lyout)
+    #     lyout = getattr(self, 'layoutButtons', None)
+    #     if isinstance(lyout, QLayout):
+    #         self.layoutMain.addLayout(lyout)
+    #     lyout = getattr(self, '_statusBar', None)
+    #     if isinstance(lyout, QLayout):
+    #         self.layoutMain.addLayout(lyout)            #TODO: more flexibility in where status bar is placed
+    # # _finalizeMainLayout
+
+    def _placeFields(self, lookupsAllowed: bool = True) -> None:
+        # field placement handled by _addDisplayRow, since they are placed in a list
+        return 
+    # _placeFields
+    
+    def _addActionButtons(self):
         # action buttons for add/remove
-        btnLayout = QHBoxLayout()
+        btnLayout = self.layoutButtons
+        assert isinstance(btnLayout, QBoxLayout), "layoutButtons must be a Box Layout"
         self.btnAdd = QPushButton("Add")
         self.btnDel = QPushButton("Delete")
         btnLayout.addWidget(self.btnAdd)
         btnLayout.addWidget(self.btnDel)
-        self.layoutMain.addLayout(btnLayout)
 
         self.btnAdd.clicked.connect(self.add_row)
         self.btnDel.clicked.connect(self.del_row)
-    # __init__
+    # _addActionButtons
 
-    def statusBar(self) -> QStatusBar|None:
-        """Get the status bar."""
-        return self.findChild(QStatusBar)
 
-    def showError(self, message: str, title: str = "Error") -> None:
-        """Show an error message box."""
-        QMessageBox.critical(self, title, message)
-        # use status bar to show error message
-        SB = self.statusBar()
-        SB.showMessage(f"Error: {message}") if SB else None
+    ######################################################
+    ########    Display 
+            
+    def initialdisplay(self):
+        # not used here - record passed in constructor
+        return
+    # initialdisplay()
 
-    # --- Lifecycle hooks ---
+    def _addDisplayRow(self, rec):
+        """Add a display row for the given record."""
+        # does NOT add to _childRecs - that must be done separately (document why)
+        wdgt = cSimpRecSbFmRecord(rec, parent=self)
+        QLWitm = QListWidgetItem()
+        QLWitm.setSizeHint(wdgt.sizeHint())
+        self.dispArea.addItem(QLWitm)
+        self.dispArea.setItemWidget(QLWitm, wdgt)
+    # _addDisplayRow
+
+
+    ##########################################
+    ########    Create
+
+    def add_row(self):
+        modl = self.ORMmodel()
+        assert modl is not None, "ORMmodel must be set before deleting record"
+        row = modl()
+        setattr(row, self.parentFK().key, getattr(self.parentRec(), self.parentRecPK().key, None))
+
+        self._childRecs.append(row)
+        self._addDisplayRow(row)
+    # add_row
+
+
+
+    ##########################################
+    ########    Read
+
     def loadFromRecord(self, rec):
         """Load subrecords for the given parent record."""
-        self._parentRec = rec
-        self._parentRecPK = get_primary_key_column(rec.__class__)
+        self.setparentRec(rec)
         self._childRecs.clear()
         self._deleted_childRecs.clear()
 
-        with self._ssnmaker() as session:
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        modl = self.ORMmodel()
+        assert modl is not None, "ORMmodel must be set before deleting record"
+        pfk = self.parentFK()
+        prikey = self.primary_key()
+        with ssnmkr() as session:
             rows = session.scalars(
-                select(self._model)
-                .filter(self._parentFK == getattr(rec, self._parentRecPK.key))
+                select(modl)
+                .filter(pfk == getattr(rec, prikey.key))
                 ).all()
             for r in rows:
                 session.expunge(r)
@@ -2059,32 +2055,33 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
 
         # self.Tblmodel.refresh(filter=(self._parentFK == getattr(rec, self._parentRecPK.key)))
     # loadFromRecord
-    def _addDisplayRow(self, rec):
-        """Add a display row for the given record."""
-        # does NOT add to _childRecs - that must be done separately (document why)
-        wdgt = cSimpRecSbFmRecord(rec, parent=self)
-        QLWitm = QListWidgetItem()
-        QLWitm.setSizeHint(wdgt.sizeHint())
-        self.dispArea.addItem(QLWitm)
-        self.dispArea.setItemWidget(QLWitm, wdgt)
-    # _addDisplayRow
+
+
+    ##########################################
+    ########    Update
 
     def saveToRecord(self, rec):
         """Save subrecords back to database."""
-        if not self._parentRec:
+        pRec = self.parentRec()
+        if not pRec:
             return
-        if self._parentRec != rec:
+        if pRec != rec:
             raise ValueError("Parent record mismatch on saveToRecord")
 
-        with self._ssnmaker() as session:
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        modl = self.ORMmodel()
+        assert modl is not None, "ORMmodel must be set before deleting record"
+        pfk = self.parentFK()
+        with ssnmkr() as session:
             # reattach new/edited
             for rec in self._childRecs:
-                setattr(rec, self._parentFK.key, getattr(self._parentRec, self._parentRecPK.key))
+                setattr(rec, pfk, getattr(pRec, self.parentRecPK().key))
                 session.merge(rec)
 
             # delete removed
             for rec in self._deleted_childRecs:
-                if getattr(rec, self._parentRecPK.key, None) is not None:
+                if getattr(rec, pfk.key, None) is not None:
                     obj = session.merge(rec)
                     session.delete(obj)
 
@@ -2093,18 +2090,13 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
 
         self._deleted_childRecs.clear()
 
-        self.loadFromRecord(self._parentRec)   # reload to refresh display area
+        self.loadFromRecord(pRec)   # reload to refresh display area
     # saveForParent
 
-    # --- Internal helpers ---
 
-    def add_row(self):
-        row = self._model()
-        setattr(row, self._parentFK.key, getattr(self._parentRec, self._parentRecPK.key, None))
 
-        self._childRecs.append(row)
-        self._addDisplayRow(row)
-    # add_row
+    ##########################################
+    ########    Delete
 
     #TODO: implement del_row
     def del_row(self):
@@ -2118,129 +2110,10 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
             # self.Tblmodel.removeRow(idx.row())
     # del_row
 
-    # --- Overrides of cSimpleRecordForm methods ---
-    # def _addActionButtons(self, 
-    #         layoutHorizontal: bool = True, 
-    #         NavActions: list[tuple[str, QIcon]]|None = None,
-    #         CRUDActions: list[tuple[str, QIcon]]|None = None,
-    #         ) -> None:
-    #     """Add action buttons to the form.
-    #     """
-    #     _iconlib = qtawesome.icon
-    #     # dfltNavActions = [
-    #     #         ("First", _iconlib("mdi.page-first")),
-    #     #         ("Previous", _iconlib("mdi.arrow-left-bold")),
-    #     #         ("Next", _iconlib("mdi.arrow-right-bold")),
-    #     #         ("Last", _iconlib("mdi.page-last")),
-    #     # ]
-    #     dfltNavActions = [] # no nav actions for subforms
-    #     dfltCRUDActionsMain = [
-    #             ("Add", _iconlib("mdi.plus")),
-    #             ("Save", _iconlib("mdi.content-save")),
-    #             ("Delete", _iconlib("mdi.delete")),
-    #             ("Cancel", _iconlib("mdi.cancel")),
-    #     ]
-    #     dfltCRUDActionsSub = [
-    #             ("Add", _iconlib("mdi.plus")),
-    #             ("Save", _iconlib("mdi.content-save")),
-    #             ("Delete", _iconlib("mdi.delete")),
-    #     ]
 
-    #     layoutHorizontal = True  # force horizontal for subforms
-    #     NavActns = NavActions if NavActions is not None else dfltNavActions
-    #     CRUDActns = CRUDActions if CRUDActions is not None else dfltCRUDActionsSub
-
-    #     if layoutHorizontal:
-    #         self.layoutButtons = QHBoxLayout()
-    #     else:
-    #         self.layoutButtons = QVBoxLayout()
-
-    #     # Navigation
-    #     innerNavLayout = QHBoxLayout()
-    #     for label, icon in NavActns:
-    #         btn = QPushButton(label, self)
-    #         btn.setIcon(icon)
-    #         btn.clicked.connect(lambda _, l=label: self._handleAction(l))
-    #         innerNavLayout.addWidget(btn)
-
-    #         if label == "Save":
-    #             self.btnCommit = btn
-    #     # CRUD
-    #     innerCRUDLayout = QHBoxLayout()
-    #     for label, icon in CRUDActns:
-    #         btn = QPushButton(label, self)
-    #         btn.setIcon(icon)
-    #         btn.clicked.connect(lambda _, l=label: self._handleAction(l))
-    #         innerCRUDLayout.addWidget(btn)
-
-    #         if label == "Save":
-    #             self.btnCommit = btn
-
-    #     self.layoutButtons.addLayout(innerNavLayout)
-    #     if layoutHorizontal:
-    #         self.layoutButtons.addSpacing(20)
-    #     self.layoutButtons.addLayout(innerCRUDLayout)
-    # # _addNavButtons
-    # # TODO: do structure similar to _addActionButtons to allow custom button sets and define Action handlers
-    # def _handleAction(self, action: str) -> None:
-    #     # Generic action dispatch — override if needed
-    #     ActionHandlers = {
-    #             "add": self.on_add_clicked,
-    #             "save": self.on_save_clicked,
-    #             "delete": self.on_delete_clicked,
-    #             'cancel': self.on_cancel_clicked,
-    #         }
-    #     action = action.lower()
-    #     if action in ActionHandlers:
-    #         ActionHandlers[action]()
-    #     else:
-    #         print(f"Unknown action: {action}")
-    #         self.showError(f"Unknown action: {action}")
-    #     #endif action
-    # _handleAction
-
-    # @Slot()
-    # def on_cancel_clicked(self):
-    #     # subforms don't have a cancel button
-    #     return
-    # cancel_record
 
     ##########################################
-    ########    Create
-
-    # def on_add_clicked(self):
-    #     self.add_row()
-    # add_record
-
-    ##########################################
-    ########    Read / Navigation
-
-    # don't need these, right?
-
-    ##########################################
-    ########    Update
-
-    # @Slot()
-    # def on_save_clicked(self, *_):
-    #     """
-    #     Collects field values from adapters/subforms, writes them into currRec,
-    #     and persists via a short-lived session.
-    #     """
-    #     self.saveToRecord(self._parentRec)
-    # save_record
-
-    ##########################################
-    ########    Delete
-
-    # @Slot()
-    # def on_delete_clicked(self):
-    # # override - remove from list, rather than load another record
-    #     self.del_row()
-    #     return
-    # delete_record
-
-    # ##########################################
-    # ########    CRUD support
+    ########    Record Status
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
@@ -2272,6 +2145,4 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base):
         return False
     # del_row
 
-    # TODO: implement idDirty, setDirty, etc
-        
 #endclass cSubRecordForm2
