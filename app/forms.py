@@ -197,21 +197,21 @@ class ProjectsRecord(cSimpleRecordForm):
 #     _ssnmaker = app_Session
 
 class WorkOrderPartsNeededSubForm(cSimpleRecordSubForm2):
-    _model = WorkOrderPartsNeeded
+    _ORMmodel = WorkOrderPartsNeeded
     #TODO: make the line below work
     # _parentFK = WorkOrderPartsNeeded.WorkOrders_id   # field in this table that is the FK to main table
     _parentFK = 'WorkOrders_id'   # field in this table that is the FK to main table
     _ssnmaker = app_Session
-    _colDef = [
-        {'field': 'id', 'readonly': True, },
-        {'field': 'WorkOrders_id', 'readonly': True, 'hidden': True, },
-        {'field': 'Parts_id', 'widgetType': cDataList , 'choices': sellL6ChoiceList.choices['Parts'], },
-        {'field': 'targetQty', },
-        {'field': 'status', },
-        {'field': 'priority', },       # suggestions from PickPriorities
-        {'field': 'notes', },
-        {'colmn': 'Delete', 'widgetType': QPushButton, 'btnText': 'Delete', 'btnSlot': 'deleteCurrentRecord', },
-    ]
+    # _colDef = [
+    #     {'field': 'id', 'readonly': True, },
+    #     {'field': 'WorkOrders_id', 'readonly': True, 'hidden': True, },
+    #     {'field': 'Parts_id', 'widgetType': cDataList , 'choices': sellL6ChoiceList.choices['Parts'], },
+    #     {'field': 'targetQty', },
+    #     {'field': 'status', },
+    #     {'field': 'priority', },       # suggestions from PickPriorities
+    #     {'field': 'notes', },
+    #     {'colmn': 'Delete', 'widgetType': QPushButton, 'btnText': 'Delete', 'btnSlot': 'deleteCurrentRecord', },
+    # ]
     fieldDefs = {
         'id': {'label': 'ID', 'widgetType': QLabel, 'noedit': True, 'readonly': True, 'position': (0,0)},
         'WorkOrders_id': {'label': 'Work Order', 'widgetType': cDataList, 'choices': sellL6ChoiceList.choices['WOMAid'], 'noedit': True, 'position': (0,1)},
@@ -229,7 +229,7 @@ class WorkOrderPartsNeededSubForm(cSimpleRecordSubForm2):
         parent=None
         ):
 
-        super().__init__(self._model, self._parentFK, session_factory or self._ssnmaker, QListWidget, parent)
+        super().__init__(self._ORMmodel, self._parentFK, session_factory or self._ssnmaker, QListWidget, parent)
 
         # self.table.setItemDelegate(cColDefOmniDelegate(self._colDef, self))
 
@@ -279,7 +279,37 @@ class WorkOrdersRecord(cSimpleRecordForm):
     def lookup_pk(self, value):
         self.lookup_and_load('id', value)
 # WorkOrdersRecord
+class WorkOrdersRecord_multipage(cSimpleRecordForm):
+    _ORMmodel = WorkOrders
+    _ssnmaker = app_Session
+    _formname = 'Work Orders'
+    pages = ['Main', 'pg 2', 'Parts']
+    fieldDefs = {
+        'id': std_id_def,
+        '@id': {'label': 'lookup ID', 'position': (0,1), 'lookupHandler': 'lookup_pk', 'widgetType': cComboBoxFromDict},
+        'CIMSNum': {'label': 'CIMS Number', 'widgetType': QLineEdit, 'position': (2,0)},
+        '@CIMSNum': {'label': 'lookup CIMS Number', 'position': (2,1), 'lookupHandler': 'lookup_CIMSNum', 'widgetType': cDataList},
+        'WOMAid': {'label': 'WO/MA id', 'widgetType': QLineEdit, 'position': (3,0)},
+        '@WOMAid': {'label': 'lookup WO/MA id', 'position': (3,1), 'lookupHandler': 'lookup_WOMAid'},
+        'MRRequestor': {'label': 'MR Requestor', 'widgetType': QLineEdit, 'page': 'pg 2', 'position': (1,0,1,2)},
+        'Project_id': {'label': 'Project', 'widgetType': cComboBoxFromDict, 'choices': sellL6ChoiceList.choices['Project'], 'page': 'pg 2', 'position': (1,3)},
+        'notes': {'label': 'Notes', 'widgetType': QLineEdit, 'page': 'pg 2', 'position': (2,0,1,3)},
+        'parts_needed': {'subform_class': WorkOrderPartsNeededSubForm, 'page': 'Parts', 'position': (1,0,1,3)},
 
+        # subform - 'parts_needed': {'label': 'Parts Needed', 'widgetType': QLineEdit, 'position': (8,0)},
+    }
+
+    @Slot()
+    def lookup_CIMSNum(self, value):
+        self.lookup_and_load('CIMSNum', value)
+    @Slot()
+    def lookup_WOMAid(self, value):
+        self.lookup_and_load('WOMAid', value)
+    @Slot()
+    def lookup_pk(self, value):
+        self.lookup_and_load('id', value)
+# WorkOrdersRecord_multipage
+    
 
 class WorkOrderPartsNeededRecord(cSimpleRecordForm):
     _tbl = WorkOrderPartsNeeded
