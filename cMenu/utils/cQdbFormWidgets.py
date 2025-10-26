@@ -770,6 +770,8 @@ class cSimpleRecordForm_Base(QWidget):
             self.setssnmaker(ssnmaker)
 
         self.layoutMain, self.layoutForm, self.layoutButtons = self._buildFormLayout()
+        
+        self._buildPages()
 
         # Let subclass build its widgets into self.layoutForm
         self._placeFields()
@@ -817,7 +819,17 @@ class cSimpleRecordForm_Base(QWidget):
 
     ######################################################
     ########    Layout and field and Widget placement
-    
+
+    def _cSRF_stdTabWidget(self) -> QTabWidget:
+        """Return a standard QTabWidget for use in the form layout."""
+        tabwidget = QTabWidget()
+        # tabwidget.setTabPosition(QTabWidget.TabPosition.North)
+        tabwidget.setMovable(False)
+        tabwidget.setTabsClosable(False)
+        tabwidget.setDocumentMode(True)
+        tabwidget.setTabBarAutoHide(True)
+        return tabwidget
+    # _cSRF_stdTabWidget
     def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]:
         """
         Build the main layout, form layout, and button layout. Must be implemented by subclasses.
@@ -864,17 +876,42 @@ class cSimpleRecordForm_Base(QWidget):
     # _buildFormLayout
 
     def _buildPages(self):
+        """Build the pages (tabs) for the form based on self.pages."""
+        if self.numPages() < 1:
+            # single page form
+            self.pages = ['Main']
+            self._tabindexTOtabname[0] = 'Main'
+            self._tabnameTOtabindex['Main'] = 0
+        # endif numPages
+
         for n, pg in enumerate(self.pages):
+            pgnm = str(pg)
             self._tabindexTOtabname[n] = pg
             self._tabnameTOtabindex[pg] = n
-            self.layoutForm
-
+            
+            widg, grid = QWidget(), QGridLayout()
+            widg.setLayout(grid)
+            self.layoutForm.addTab(widg, self.tr(pgnm))
+        # endfor enum pages
     # _buildPages
-    def FormPage(idx:int|str):
-        ...
+    def FormPage(self, idx:int|str) -> QGridLayout|None:
+        """Return the QGridLayout for the given page index or name."""
+        if isinstance(idx, str):
+            tabidx = self._tabnameTOtabindex.get(idx)
+            if tabidx is None:
+                return None
+        else:
+            tabidx = idx
+        widg = self.layoutForm.widget(tabidx)
+        if widg is None:
+            return None
+        L = widg.layout()
+        return L if isinstance(L, QGridLayout) else None
     # FormPage
     def numPages(self) -> int:
         return len(self.pages)
+        # or return self.layoutForm.count() # mebbe not - see _buildPages
+    # numPages
     
     def _bindField(self, _fieldName: str, widget: QWidget) -> None:
         """Register field and connect to changeField."""
@@ -944,6 +981,8 @@ class cSimpleRecordForm_Base(QWidget):
             lblChkBxYesNo = fldDef.get('lblChkBxYesNo', None)
             focusPolicy = fldDef.get('focusPolicy', Qt.FocusPolicy.ClickFocus if (isLookup or isSubFormElmnt) else None)
             modlFld = fldName
+            fmPg_indef = fldDef.get('page', 0)
+            fmPg = fmPg_indef if isinstance(fmPg_indef, int) else self._tabnameTOtabindex.get(fmPg_indef, 0)
             pos = fldDef.get('position', None)
 
             # --- Subform case ---
@@ -1026,7 +1065,10 @@ class cSimpleRecordForm_Base(QWidget):
 
             # Place in layout
             if isinstance(pos, tuple) and len(pos) >= 2:
-                self.layoutForm.addWidget(widget, *pos)
+                fmLayout = self.FormPage(fmPg)
+                if fmLayout is None:
+                    raise ValueError(f"Form page {fmPg_indef} not found for field '{fldName}'")
+                fmLayout.addWidget(widget, *pos)
 
             widget.dirtyChanged.connect(
                 lambda dirty, w=widget: self.setDirty(w, dirty)
@@ -1048,8 +1090,8 @@ class cSimpleRecordForm_Base(QWidget):
         if isinstance(lyout, QLayout):
             self.layoutMain.addLayout(lyout)
         lyout = getattr(self, 'layoutForm', None)
-        if isinstance(lyout, QLayout):
-            self.layoutMain.addLayout(lyout)
+        if isinstance(lyout, QWidget):
+            self.layoutMain.addWidget(lyout)
         lyout = getattr(self, 'layoutButtons', None)
         if isinstance(lyout, QLayout):
             self.layoutMain.addLayout(lyout)
@@ -1538,11 +1580,11 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
     
     # init
 
-    def _buildFormLayout(self) -> tuple[QBoxLayout, QGridLayout, QBoxLayout|None]:
+    def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]:
         # returns tuple (layoutMain, layoutForm, layoutButtons)
 
         layoutMain = QVBoxLayout(self)
-        layoutForm = QGridLayout()
+        layoutForm = self._cSRF_stdTabWidget()
         layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
         self._statusBar = QStatusBar(self)
 
@@ -1821,10 +1863,10 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
         # self.showNewRecordFlag(self.isNewRecord())
     # __init__
 
-    def _buildFormLayout(self) -> tuple[QBoxLayout, QGridLayout, QBoxLayout | None]:
+    def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout | None]:
 
         layoutMain = QVBoxLayout(self)
-        layoutForm = QGridLayout()
+        layoutForm = self._cSRF_stdTabWidget()
         self._statusBar = QStatusBar(self)
 
         self._newrecFlag = QLabel("New Rec", self)
@@ -1900,7 +1942,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     """
 
 
-# NEXT: make viewClass QListWidget (was QTableView)
+    # NEXT: make viewClass QListWidget (was QTableView)
     def __init__(self,
         ORMmodel: Type[Any]|None = None,
         parentFK: Any = None,
@@ -1951,15 +1993,15 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     ######################################################
     ########    Layout and field and Widget placement
     
-    def _buildFormLayout(self) -> tuple[QBoxLayout, QGridLayout, QBoxLayout|None]:
+    def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]:
         layoutMain = QVBoxLayout(self)
-        layoutForm = QGridLayout()
+        layoutForm = self._cSRF_stdTabWidget()
         layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
         self._statusBar = QStatusBar(self)
 
         viewClass = self.vwClass if hasattr(self, 'vwClass') else QListWidget
         self.dispArea = viewClass(parent=self)
-        layoutForm.addWidget(self.dispArea)
+        layoutForm.addTab(self.dispArea, '')
         # self.Tblmodel = SQLAlchemyTableModel(self._model, self._ssnmaker, literal(False), parent=self)
         # FIXMEFIXMEFIXME!!!
         # not needed? each record widget handles its own data
@@ -1968,7 +2010,12 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 
         return layoutMain, layoutForm, layoutButtons
     # _buildFormLayout
-    
+
+    def _buildPages(self):
+        # nope, just the one page
+        return
+    # _buildPages
+        
     # def _finalizeMainLayout(self):
     #     assert isinstance(self.layoutMain, QBoxLayout), 'layoutMain must be a Box Layout'
         

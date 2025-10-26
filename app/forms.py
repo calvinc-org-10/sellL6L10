@@ -264,7 +264,9 @@ class WorkOrdersRecord(cSimpleRecordForm):
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)   # or Raised, Plain
-        self.layoutForm.addWidget(line, 7, 0, 1, 3)  # row, col, rowspan, colspan
+        lyout = self.FormPage(0)
+        if lyout is not None:
+            lyout.addWidget(line, 7, 0, 1, 3)  # row, col, rowspan, colspan
     # _finalizeMainLayout
      
     @Slot()
