@@ -11,7 +11,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
-    QWidget,
+    QWidget, QTabWidget,
     QFrame, QLayout, QBoxLayout, QVBoxLayout, QHBoxLayout, QGridLayout, QLayoutItem, 
     QMessageBox, 
     QTableView, QHeaderView, 
@@ -818,12 +818,12 @@ class cSimpleRecordForm_Base(QWidget):
     ######################################################
     ########    Layout and field and Widget placement
     
-    def _buildFormLayout(self) -> tuple[QBoxLayout, QGridLayout, QBoxLayout|None]:
+    def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]:
         """
         Build the main layout, form layout, and button layout. Must be implemented by subclasses.
         Creates and configures:
         1. layoutMain: the main layout for the form (QVBoxLayout or QHBoxLayout)
-        2. layoutForm: the grid layout for the form fields  (QGridLayout)
+        2. layoutForm: the grid layout for the form fields  (QTabWidget)
         3. layoutButtons: the layout for the action buttons (QHBoxLayout or QVBoxLayout)
 
         Form elements created here, but not returned:
@@ -834,13 +834,13 @@ class cSimpleRecordForm_Base(QWidget):
         8. Set the window title to the form name
         
         Returns:
-            tuple (layoutMain:QBoxLayout, layoutForm:QGridLayout, layoutButtons:QBoxLayout|None)
+            tuple (layoutMain:QBoxLayout, layoutForm:QTabWidget, layoutButtons:QBoxLayout|None)
         
         """
         raise NotImplementedError
 
         # layoutMain = QVBoxLayout(self)
-        # self.layoutForm = QGridLayout()
+        # self.layoutForm = QTabWidget() # (was QGridLayout())
         # self.layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
         # self._statusBar = QStatusBar(self)
 
@@ -864,11 +864,17 @@ class cSimpleRecordForm_Base(QWidget):
     # _buildFormLayout
 
     def _buildPages(self):
-        ...
+        for n, pg in enumerate(self.pages):
+            self._tabindexTOtabname[n] = pg
+            self._tabnameTOtabindex[pg] = n
+            self.layoutForm
+
     # _buildPages
     def FormPage(idx:int|str):
         ...
     # FormPage
+    def numPages(self) -> int:
+        return len(self.pages)
     
     def _bindField(self, _fieldName: str, widget: QWidget) -> None:
         """Register field and connect to changeField."""
