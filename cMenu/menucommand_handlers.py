@@ -7,9 +7,9 @@ from PySide6.QtCore import (Qt, QObject,
 # from PySide6.QtSql import (QSqlRecord, QSqlQuery, QSqlQueryModel, QSqlDatabase, )
 # from PySide6.QtSql import (QSqlQueryModel, )
 from PySide6.QtGui import (QFont, QIcon, )
-from PySide6.QtWidgets import ( QStyle, 
+from PySide6.QtWidgets import ( QBoxLayout, QLayout, QStyle, QTabWidget, 
     QWidget, QGridLayout, QHBoxLayout, QVBoxLayout, QFormLayout, QFrame, 
-    QTableView, QHeaderView,
+    QTableView, QHeaderView, QScrollArea,
     QDialog, QMessageBox, QFileDialog, QDialogButtonBox,
     QLabel, QLCDNumber, QLineEdit, QTextEdit, QPlainTextEdit, QPushButton, QCheckBox, QComboBox, 
     QRadioButton, QGroupBox, QButtonGroup, 
@@ -19,11 +19,14 @@ from PySide6.QtWidgets import ( QStyle,
 from openpyxl import Workbook
 from sqlalchemy import (inspect, select, Engine, ) 
 from sqlalchemy.orm import (make_transient, sessionmaker, )
+from sqlalchemy.orm.session import make_transient
 
 
 # there's no need to import cMenu, plus it's a circular ref - cMenu depends heavily on this module
 # from .kls_cMenu import cMenu 
 
+from _newcode import _NUM_menuBUTTONS, Nochoice
+from cMenu.utils import areYouSure, cComboBoxFromDict, cSimpleRecordForm_Base, cstdTabWidget
 from menuformname_viewMap import FormNameToURL_Map
 
 from .database import cMenu_Session
@@ -384,18 +387,154 @@ class cMRunSQL(QWidget):
 #############################################
 #############################################
 
-class cWidgetMenuItem(QWidget):
-    formFields:Dict[str, QWidget] = {}
+class cWidgetMenuItem(cSimpleRecordForm_Base):
+    """
+    cWidgetMenuItem_tst
+    -------------------
+    A specialized form widget for viewing and editing a single menu item record (menuItems).
+    This widget is intended to be used inside a QWidget-based application using PyQt/PySide
+    and SQLAlchemy for persistence. It builds a compact edit form from the `fieldDefs`
+    mapping and provides common CRUD-related actions appropriate for a menu item:
+    - Save changes (commit)
+    - Remove the current option
+    - Copy or Move the current option to another menu/position
+    Notes
+    -----
+    - This widget expects an SQLAlchemy mapped ORM model `menuItems` and a sessionmaker
+        callable `cMenu_Session` to be available and assigned to the class attributes
+        `_ORMmodel` and `_ssnmaker` respectively.
+    - The widget does not create brand-new menu items in the sense of offering a primary
+        "new" flow; it operates on an existing `menuItems` instance supplied at construction.
+    - Copy semantics use `copy.deepcopy` followed by `sqlalchemy.orm.session.make_transient`
+        to detach the copy before inserting it as a new row. Move semantics create a copy
+        and then remove the original row from the database.
+    - The widget emits the `requestMenuReload` Signal() whenever a change is made that
+        requires other components to refresh their cached menu structures.
+    Public attributes (class-level)
+    -------------------------------
+    - _ORMmodel: ORM model class for menu items (expected: menuItems)
+    - _ssnmaker: sessionmaker factory for database transactions (expected: cMenu_Session)
+    - fieldDefs: dict mapping field names to widget configuration for form construction
+    - requestMenuReload: Qt Signal emitted when a menu reload is required by listeners
+    Inner class: cEdtMnuItmDlg_CopyMove_MenuItm
+    ------------------------------------------
+    A modal QDialog used to prompt the user for a destination Menu Group, Menu ID,
+    and Option Number when copying or moving a menu option. It encapsulates all UI and
+    validation required to choose a valid destination (e.g., preventing collisions with
+    already-defined option numbers):
+    Key behaviors / API:
+    - __init__(menuGrp:int, menuID:int, optionNumber:int, parent:QWidget|None)
+        Constructs the dialog initializing comboboxes for menu groups, menus, and options.
+    - dictmenuGroup() -> Dict[str,int]
+        Returns mapping of menu group names to ids using the cMenu_Session.
+    - dictmenus(mnuGrp:int) -> Mapping[str, int|None]
+        Returns mapping of main-menu OptionText -> MenuID for menus in the supplied group.
+    - dictmenuOptions(mnuID:int) -> Mapping[str, int|None]
+        Returns the set of available option numbers (as strings) for a target menu id,
+        excluding option numbers already defined in that menu.
+    - loadMenuIDs(idx:int), loadMenuOptions(idx:int), menuOptionChosen(idx:int)
+        Slots used to cascade the combobox population and enable/disable the Ok button.
+    - enableOKButton()
+        Enables the Ok button only when a Group, Menu and Option are all selected.
+    - exec_CM_MItm() -> Tuple[int|bool, bool, Tuple[int,int,int]]
+        Executes the dialog (modal) and returns a tuple:
+            (exec_result, is_copy_bool, (chosenGroup, chosenMenu, chosenOption))
+        where exec_result is the QDialog exec() return, and is_copy_bool is True for Copy,
+        False for Move.
+    Public instance methods (high-level)
+    ------------------------------------
+    - __init__(menuitmRec: menuItems, parent: QWidget|None = None)
+        Initialize the widget to operate on the provided menu item ORM instance. The
+        supplied record is considered the "current record" for subsequent operations.
+    - _buildFormLayout() -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]
+        Internal layout builder that returns tuple of left tab widget and right layout
+        containers used by the base form assembly.
+    - _addActionButtons()
+        Constructs and wires action buttons (Save Changes, Copy / Move, Remove) and places
+        them into the widget's button layout. Buttons are connected to on_save_clicked,
+        copyMenuOption, and on_delete_clicked respectively.
+    - _handleActionButton(action: str) -> None
+        Overridden no-op; action routing is handled locally.
+    - _finalizeMainLayout()
+        Assembles form, action buttons, and other parts into the main layout.
+    - fillFormFromcurrRec()
+        Populate the form widgets from the currently-bound record. Also updates button
+        enablement: Copy/Move and Remove are disabled for new (unsaved) records.
+    - initialdisplay()
+        Convenience method that calls fillFormFromcurrRec() to prime the UI.
+    - on_delete_clicked() -> None
+        Slot executed when the Remove button is clicked. Behavior:
+            - Confirms deletion with the user (via areYouSure).
+            - Loads the persistent record by primary key and deletes it in a session, then commits.
+            - Reinitializes the current record object kept by the widget and restores the
+                MenuGroup/MenuID/OptionNumber values so the user can create or reassign a new
+                option in the same slot if desired.
+            - Emits requestMenuReload to inform listeners that menu data changed.
+        Preconditions:
+            - self._ssnmaker (class attribute) must be available.
+            - self._ORMmodel must refer to the mapped ORM model.
+    - copyMenuOption() -> None
+        Slot launched by the Copy / Move button. Behavior:
+            - Opens the inner cEdtMnuItmDlg_CopyMove_MenuItm dialog to request a destination.
+            - If the user accepts:
+                    * Creates a deep-copy of the in-memory record, detaches it (make_transient),
+                        resets primary keys and target MenuGroup/MenuID/OptionNumber, and inserts it
+                        into the database (session.add + commit).
+                    * If the Move option was selected, deletes the original persistent record and
+                        refreshes the widget's current record to a fresh, unpersisted instance bound
+                        to the same original MenuGroup/MenuID/OptionNumber (so the UI remains stable).
+            - Emits requestMenuReload when a move occurs (or when appropriate after copy).
+        Implementation details:
+            - The copy preserves relationships where deepcopy copies them; using make_transient
+                is necessary to convert the copy into a state suitable for insertion.
+            - The code ensures the sessionmaker and ORMmodel exist before performing DB actions.
+    Signals
+    -------
+    - requestMenuReload: emitted after operations that require other UI components to
+        reload/rebuild menus (e.g., delete, move).
+    Error handling and assumptions
+    ------------------------------
+    - The widget assumes a working SQLAlchemy environment and valid ORM mappings for
+        menuGroups and menuItems.
+    - Database operations are transactional and use the provided cMenu_Session context.
+    - UI routines assume typical Qt widget behavior and that combobox widgets expose
+        .currentData(), .currentIndex(), .replaceDict(), .setCurrentIndex(), .clear() etc.
+        (cComboBoxFromDict is expected to implement replaceDict and to use the data role
+        for stored ids).
+    - The widget will do nothing (no exception) if invoked when there is no current record,
+        or if required class attributes (sessionmaker/ORM model) are not set; assertions are
+        used in some code paths to surface incorrect configuration early.
+    Example use
+    -----------
+    Create an instance of the widget bound to a loaded menuItems ORM instance and add it
+    to a parent container. Wire to requestMenuReload to update surrounding UI:
+            w = cWidgetMenuItem_tst(my_menuitem_record, parent=some_parent_widget)
+            w.requestMenuReload.connect(on_reload_needed)
+    This docstring documents the public behaviors and expectations of cWidgetMenuItem_tst.
+    """
+    _ORMmodel = menuItems
+    _ssnmaker = cMenu_Session
+    fieldDefs = {
+        'OptionNumber': {'label': 'Option Number', 'widgetType': QLineEdit, 'position': (0,0), 'noedit': True, 'readonly': True, 'frame': False, 'maximumWidth': 25, 'focusPolicy': Qt.FocusPolicy.NoFocus, 'focusable': Qt.FocusPolicy.NoFocus, },
+        'OptionText': {'label': 'OptionText', 'widgetType': QLineEdit, 'position': (0,1,1,2)},
+        'TopLine': {'label': 'Top Line', 'widgetType': QCheckBox, 'position': (0,3,1,2), 'lblChkBxYesNo': {True:'YES', False:'NO'}, },
+        'BottomLine': {'label': 'Btm Line', 'widgetType': QCheckBox, 'position': (0,5), 'lblChkBxYesNo': {True:'YES', False:'NO'}, },
+        'Command': {'label': 'Command', 'widgetType': cComboBoxFromDict, 'choices': vars(COMMANDNUMBER), 'position': (1,0,1,2)},
+        'Argument': {'label': 'Argument', 'widgetType': QLineEdit, 'position': (1,2,1,2), },
+        'PWord': {'label': 'Password', 'widgetType': QLineEdit, 'position': (1,4,1,2), },
+    }
+
+    # formFields:Dict[str, QWidget] = {}
 
     requestMenuReload:Signal = Signal()
-    
+
     class cEdtMnuItmDlg_CopyMove_MenuItm(QDialog):
         intCMChoiceCopy:int = 10
         intCMChoiceMove:int = 20
-        
+
         def __init__(self, menuGrp:int, menuID:int, optionNumber:int, parent = None):   # parent:QWidget = None
             super().__init__(parent)
-            
+
             self.setWindowModality(Qt.WindowModality.WindowModal)
             self.setWindowTitle(parent.windowTitle() if parent else 'Copy/Move Menu Item')
 
@@ -430,7 +569,7 @@ class cWidgetMenuItem(QWidget):
             self.combobxMenuGroupID.setCurrentIndex(self.combobxMenuGroupID.findData(menuGrp))
             self.loadMenuIDs(menuGrp)
             ##################################################            
-            
+
             visualgrpboxCopyMove = QGroupBox(self.tr("Copy / Move"))
             layoutgrpCopyMove = QHBoxLayout()
             # Create radio buttons
@@ -451,7 +590,7 @@ class cWidgetMenuItem(QWidget):
                 Qt.Orientation.Horizontal,
                 )
             self.dlgButtons.accepted.connect(self.accept)
-            self.dlgButtons.rejected.connect(self.reject)            
+            self.dlgButtons.rejected.connect(self.reject)
             self.dlgButtons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
 
             layoutMine = QVBoxLayout()
@@ -459,7 +598,7 @@ class cWidgetMenuItem(QWidget):
             layoutMine.addWidget(visualgrpboxCopyMove)
             layoutMine.addLayout(layoutNewItemID)
             layoutMine.addWidget(self.dlgButtons)
-            
+
             self.setLayout(layoutMine)
 
         def dictmenuGroup(self) -> Dict[str, int]:
@@ -519,7 +658,7 @@ class cWidgetMenuItem(QWidget):
                 self.combobxMenuOption.currentIndex() != -1,
             ])
             self.dlgButtons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(all_GrpIdOption_chosen)
-        
+
         def exec_CM_MItm(self) -> Tuple[int|bool, bool, Tuple[int, int, int]]:
             ret = super().exec()
             copymove = self.lgclbtngrpCopyMove.checkedId()
@@ -527,117 +666,47 @@ class cWidgetMenuItem(QWidget):
             chosenMenuID = self.combobxMenuID.currentData()
             chosenMenuOption = self.combobxMenuOption.currentData()
             return (
-                ret, 
+                ret,
                 copymove != self.intCMChoiceMove,   # True unless Move checked
                 # return (Group, Menu, OptrNum) tuple
                 (chosenMenuGroup, chosenMenuID, chosenMenuOption),
                 )
-    
+
+
     def __init__(self, menuitmRec:menuItems, parent:QWidget = None):   # type: ignore
-        super().__init__(parent)
-        
-        self.setObjectName('cWidgetMenuItem')
-        
-        self.currRec = menuitmRec
-        
+
+        self.setcurrRec(menuitmRec)
+        super().__init__(parent=parent)
+
         font = QFont()
         font.setPointSize(7)
         self.setFont(font)
 
-        self.layoutFormMain = QHBoxLayout(self)
-        self.layoutFormMain.setContentsMargins(0,0,0,0)
-        self.layoutFormMain.setSpacing(0)
-        
-        self.layoutFormMainLeft = QVBoxLayout()
-        self.layoutFormMainLeft.setContentsMargins(0,0,0,0)
-        self.layoutFormMainLeft.setSpacing(0)
+        self.setObjectName('cWidgetMenuItem')
 
-        ##
-        self.layoutFormLine1 = QHBoxLayout()
-        self.layoutFormLine1.setContentsMargins(0,0,0,0)
-        self.layoutFormLine1.setSpacing(0)
-        
-        # self.lnedtOptionNumber = QLineEdit(self)
-        modlFld='OptionNumber'
-        wdgt = cQFmFldWidg(QLineEdit,
-            lblText='Option Number', modlFld=modlFld, parent=self)
-        self.formFields[modlFld] = wdgt
-        self.lnedtOptionNumber = wdgt
-        # self.lnedtOptionNumber.setProperty('modelField', 'OptionNumber')
-        # self.lnedtOptionNumber.setValue = self.lnedtOptionNumber.setText
-        wdgt._wdgt.setProperty('noedit', True)
-        if hasattr(wdgt._wdgt, 'setReadOnly'):
-            wdgt._wdgt.setReadOnly(True)    # type: ignore
-        if hasattr(wdgt._wdgt, "setFrame"):
-            wdgt._wdgt.setFrame(False)      # type: ignore
-        wdgt._wdgt.setMaximumWidth(25)
-        wdgt._wdgt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    # __init__
 
-        modlFld='OptionText'
-        wdgt = cQFmFldWidg(QLineEdit, lblText='OptionText: ', modlFld=modlFld, parent=self)
-        self.formFields[modlFld] = wdgt
-        self.fldOptionText = wdgt
-        wdgt.signalFldChanged.connect(lambda: self.changeField(self.fldOptionText))
+    ##########################################
+    ########    Layout
 
-        modlFld='TopLine'
-        wdgt = cQFmFldWidg(QCheckBox, lblText='Top Line', lblChkBxYesNo={True:'YES', False:'NO'}, 
-                modlFld=modlFld, parent=self)
-        self.formFields[modlFld] = wdgt
-        self.fldMenuItemTopLine = wdgt
-        wdgt.signalFldChanged.connect(lambda newstate: self.changeField(self.fldMenuItemTopLine))
+    def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout | None]:
+        layoutFormMain = QHBoxLayout(self)
+        layoutFormMain.setContentsMargins(0,0,0,0)
+        layoutFormMain.setSpacing(0)
 
-        modlFld='BottomLine'
-        wdgt = cQFmFldWidg(QCheckBox, lblText='Btm Line', lblChkBxYesNo={True:'YES', False:'NO'}, 
-                modlFld=modlFld, parent=self)
-        self.formFields[modlFld] = wdgt
-        self.fldMenuItemBottomLine = wdgt
-        wdgt.signalFldChanged.connect(lambda newstate: self.changeField(self.fldMenuItemBottomLine))
+        layoutFormMainLeft = cstdTabWidget()
+        layoutFormMainLeft.setContentsMargins(0,0,0,0)
 
-        # self.layoutFormLine1.addWidget(self.lblOptionNumber)
-        self.layoutFormLine1.addWidget(self.lnedtOptionNumber)
-        self.layoutFormLine1.addWidget(self.fldOptionText)
-        self.layoutFormLine1.addWidget(self.fldMenuItemTopLine)
-        self.layoutFormLine1.addWidget(self.fldMenuItemBottomLine)
+        layoutFormMainRight = QVBoxLayout()
+        layoutFormMainRight.setContentsMargins(0,0,0,0)
+        layoutFormMainRight.setSpacing(0)
 
-        ##
+        return layoutFormMain, layoutFormMainLeft, layoutFormMainRight
+    # _buildFormLayout
 
-        self.layoutFormLine2 = QHBoxLayout()
-        self.layoutFormLine2.setContentsMargins(0,0,0,0)
-        self.layoutFormLine2.setSpacing(0)
-
-        modlFld='Command'
-        wdgt = cQFmFldWidg(cComboBoxFromDict, lblText='Command:', modlFld=modlFld, 
-            choices=vars(COMMANDNUMBER), parent=self)
-        self.formFields[modlFld] = wdgt
-        self.fldCommand = wdgt
-        wdgt.signalFldChanged.connect(lambda x: self.changeField(self.fldCommand))
-
-        modlFld='Argument'
-        wdgt = cQFmFldWidg(QLineEdit, lblText='Argument: ', modlFld=modlFld, parent=self)
-        self.formFields[modlFld] = wdgt
-        self.fldArgument = wdgt
-        wdgt.signalFldChanged.connect(lambda: self.changeField(self.fldArgument))
-
-        modlFld='PWord'
-        wdgt = cQFmFldWidg(QLineEdit, lblText='Password: ', modlFld='PWord', parent=self)
-        self.formFields[modlFld] = wdgt
-        self.fldPWord = wdgt
-        wdgt.signalFldChanged.connect(lambda: self.changeField(self.fldPWord))
-
-        self.layoutFormLine2.addWidget(self.fldCommand)
-        self.layoutFormLine2.addWidget(self.fldArgument)
-        self.layoutFormLine2.addWidget(self.fldPWord)
-
-        self.layoutFormMainLeft.addLayout(self.layoutFormLine1)
-        self.layoutFormMainLeft.addLayout(self.layoutFormLine2)
-        ##
-        
-        self.layoutFormMainRight = QVBoxLayout()
-        self.layoutFormMainRight.setContentsMargins(0,0,0,0)
-        self.layoutFormMainRight.setSpacing(0)
-
+    def _addActionButtons(self):
         self.btnCommit = QPushButton(self.tr('Save\nChanges'), self)
-        self.btnCommit.clicked.connect(self.writeRecord)
+        self.btnCommit.clicked.connect(self.on_save_clicked)
         # self.btnCommit.setFixedSize(60, 30)  # Adjust width and height
         self.btnCommit.setStyleSheet("padding: 2px; margin: 0;")  # Remove extra padding
 
@@ -647,30 +716,52 @@ class cWidgetMenuItem(QWidget):
         self.btnMoveCopy.setStyleSheet("padding: 2px; margin: 0;")  # Remove extra padding
 
         self.btnRemove = QPushButton(self.tr('Remove'), self)
-        self.btnRemove.clicked.connect(self.rmvMenuOption)
+        self.btnRemove.clicked.connect(self.on_delete_clicked)
         # self.btnRemove.setFixedSize(60, 30)  # Adjust width and height
         self.btnRemove.setStyleSheet("padding: 2px; margin: 0;")  # Remove extra padding
 
-        self.layoutFormMainRight.addWidget(self.btnMoveCopy)
-        self.layoutFormMainRight.addWidget(self.btnRemove)
-        self.layoutFormMainRight.addWidget(self.btnCommit)
+        assert isinstance(self.layoutButtons, QBoxLayout), 'layoutButtons must be a Box Layout'
+        self.layoutButtons.addWidget(self.btnMoveCopy)
+        self.layoutButtons.addWidget(self.btnRemove)
+        self.layoutButtons.addWidget(self.btnCommit)
+    def _handleActionButton(self, action: str) -> None:
+        # we have our own handlers, so no need to handle anything here
+        return
+    # _addActionButtons, _handleActionButton    
 
-        # # minimize sizing
-        # for widget in [self.lnedtOptionNumber, self.fldOptionText, self.fldMenuItemTopLine, 
-        #             self.fldMenuItemBottomLine, self.fldCommand, self.fldArgument, self.fldPWord, self.btnCommit]:
-        #     widget.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+    def _finalizeMainLayout(self):
+        assert isinstance(self.layoutMain, QBoxLayout), 'layoutMain must be a Box Layout'
 
-        # self.lnedtOptionNumber._wdgt.setFixedHeight(20)  # Adjust height to minimize space
-        # self.fldOptionText._wdgt.setFixedHeight(20)
-        # self.fldArgument._wdgt.setFixedHeight(20)
-        # self.fldPWord._wdgt.setFixedHeight(20)
+        # lyout = getattr(self, 'layoutFormHdr', None)
+        # if isinstance(lyout, QLayout):
+        #     self.layoutMain.addLayout(lyout)
+        lyout = getattr(self, 'layoutForm', None)
+        if isinstance(lyout, QWidget):
+            self.layoutMain.addWidget(lyout)
+        lyout = getattr(self, 'layoutButtons', None)
+        if isinstance(lyout, QLayout):
+            self.layoutMain.addLayout(lyout)
+        # lyout = getattr(self, '_statusBar', None)
+        # if isinstance(lyout, QLayout):
+        #     self.layoutMain.addLayout(lyout)            #TODO: more flexibility in where status bar is placed
+    # _finalizeMainLayout
 
-        self.layoutFormMain.addLayout(self.layoutFormMainLeft)
-        self.layoutFormMain.addLayout(self.layoutFormMainRight)
-        
+
+    ######################################################
+    ########    Display 
+
+    def fillFormFromcurrRec(self):
+        super().fillFormFromcurrRec()
+
+        self.btnMoveCopy.setEnabled(not self.isNewRecord())
+        self.btnRemove.setEnabled(not self.isNewRecord())
+    # fillFormFromRec
+
+    def initialdisplay(self):
         self.fillFormFromcurrRec()
+    # initialdisplay()
 
-    # __init__
+
 
     ##########################################
     ########    Create
@@ -680,191 +771,58 @@ class cWidgetMenuItem(QWidget):
     ##########################################
     ########    Read
 
-    def fillFormFromcurrRec(self):
-        cRec:menuItems = self.currRec
-    
-        # move to class var?
-        forgnKeys = {
-            'id': cRec.id if cRec else '',
-            'MenuGroup': cRec.MenuGroup_id if cRec else '',
-            }
-        # move to class var?
-        valu_transform_flds = {
-        }
-
-        # for field in cRec._meta.get_fields():
-        inspector = inspect(cRec)
-        for fld in inspector.attrs:
-            # print(fld.key, getattr(cRec, fld.key))
-
-            fieldname = fld.key
-            field_value = getattr(cRec, fieldname, None)
-            field_valueStr = str(field_value)
-            if fieldname in forgnKeys:
-                field_valueStr = str(forgnKeys[fieldname])
-            if fieldname in valu_transform_flds:
-                field_valueStr = valu_transform_flds[fieldname][0](field_value)
-            
-            if fieldname in self.formFields:
-                wdgt = self.formFields[fieldname]
-                wdgt.setValue(field_valueStr)       # type: ignore
-            #endif field.name in self.formFields
-        #endfor field in cRec
-        
-        # fix this later ...
-        
-        self.btnMoveCopy.setEnabled(cRec.id is not None)
-        self.btnRemove.setEnabled(cRec.id is not None)
-        
-        self.setFormDirty(self, False)
-    # fillFormFromRec
-
 
     ##########################################
     ########    Update
-
-    @Slot()
-    def changeField(self, wdgt:cQFmFldWidg) -> bool:
-        # move to class var?
-        forgnKeys = {   
-            'MenuGroup',
-            }
-        # move to class var?
-        valu_transform_flds = {
-        }
-        cRec:menuItems = self.currRec
-        dbField = wdgt.modelField()
-        if dbField is None:
-            return False
-
-        wdgt_value = wdgt.Value()
-
-        if dbField in forgnKeys:
-            dbField += '_id'
-        if dbField in valu_transform_flds:
-            wdgt_value = valu_transform_flds[dbField][1](wdgt_value)
-
-        if wdgt_value or isinstance(wdgt_value,bool):
-            cRec.setValue(dbField, wdgt_value)
-            self.setFormDirty(wdgt, True)
-
-            return True
-        else:
-            return False
-        # endif wdgt_value
-    # changeField
-    
-    @Slot()
-    def writeRecord(self):
-        if not self.isFormDirty():
-            return
-        
-        cRec:menuItems = self.currRec
-        
-        insp = inspect(cRec)
-        primary_key_values = insp.identity  # Returns a tuple of PK values (or None if transient)
-        pk = primary_key_values[0] if primary_key_values else None
-        
-        if not pk:
-            # force values on flds with NOT NULL constraint
-            notnullFlds = {
-                # "MenuID" really should have a value
-                # "OptionNumber" should have a value or else something's SERIOUSLY wrong
-                "OptionText" : "", 
-                "Argument" : "", 
-                "PWord" : "", 
-            }
-            for fldName, replVal in notnullFlds.items():
-                if getattr(cRec, fldName) in [None, 'None']:
-                    cRec.setValue(fldName, replVal)
-            #endfor fldName, replVal in notnullFlds.items()
-            
-        #endif pk
-
-        with cMenu_Session() as session:
-            persistent_rec = session.merge(cRec)    # this will insert the record if it doesn't exist, or update it if it does
-            session.commit()                        # commit changes to DB
-            self.currRec = persistent_rec           # keep UI pointing to DB-synced object
-
-        pk = self.currRec.id
-
-        self.btnMoveCopy.setEnabled(pk is not None)
-        self.btnRemove.setEnabled(pk is not None)
-        
-        self.setFormDirty(self, False)
-    # writeRecord
 
 
     ##########################################
     ########    Delete
 
-    def rmvMenuOption(self):
-        cRec:menuItems = self.currRec
-        mGrp, mnu, mOpt = (cRec.MenuGroup_id, cRec.MenuID, cRec.OptionNumber)
-        # verify delete
-        
-        really = areYouSure(self, 
+    @Slot()
+    def on_delete_clicked(self):
+        currRec = self.currRec()
+        if not currRec:
+            return
+
+        mGrp, mnu, mOpt = (currRec.MenuGroup_id, currRec.MenuID, currRec.OptionNumber)
+
+        pKey = self.primary_key()
+        keyID = getattr(currRec, pKey.key)
+
+        really = areYouSure(self,
             title="Remove Menu Option?",
-            areYouSureQuestion=f'Really remove menu option {mGrp}, {mnu}, {mOpt} ({cRec.OptionText}) ?'
+            areYouSureQuestion=f'Really remove menu option {mGrp}, {mnu}, {mOpt} ({currRec.OptionText}) ?'
             )
-        
         if really != QMessageBox.StandardButton.Yes:
             return
-        
-        # remove from db
-        pk = cRec.id
 
-        rslt = "No record to delete"
-        if pk:
-            with cMenu_Session() as session:
-                session.delete(cRec)
+        # Actually delete
+        ssnmkr = self.ssnmaker()
+        assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
+        modl = self.ORMmodel()
+        assert modl is not None, "ORMmodel must be set before deleting record"
+        with ssnmkr() as session:
+            rec = session.get(modl, keyID)
+            if rec:
+                session.delete(rec)
                 session.commit()
-        #endif pk
 
-        self.makeCurrecEmpty(mGrp, mnu, mOpt)
-        
+        self.initializeRec()
+        # preserve MenuGroup, MenuID, OptionNumber
+        currRec = self.currRec()
+        currRec.MenuGroup_id, currRec.MenuID, currRec.OptionNumber = mGrp, mnu, mOpt
+
+        self.fillFormFromcurrRec()
+
         self.requestMenuReload.emit()   # let listeners know we need a menu reload
-
-    def makeCurrecEmpty(self, mGrp, mnu, mOpt):
-        # replace with an empty record
-        # cRec = menuItems_QT().record()
-        cRec = menuItems(
-            MenuGroup_id=mGrp,
-            MenuID=mnu,
-            OptionNumber=mOpt
-        )   # does this really do it?
-
-        self.currRec = cRec
-
-    ##########################################
-    ########    CRUD support
-
-    @Slot()
-    def setFormDirty(self, wdgt:cQFmFldWidg, dirty:bool = True):
-        if wdgt.property('noedit'):
-            return
-        
-        wdgt.setProperty('dirty', dirty)
-        # if wdgt === self, set all children dirty
-        if wdgt is not self:
-            if dirty: self.setProperty('dirty',True)
-        else:
-            for W in self.children():
-                if any([W.inherits(tp) for tp in ['QLineEdit', 'QTextEdit', 'QCheckBox', 'QComboBox', 'QDateEdit', ]]):
-                    W.setProperty('dirty', dirty)
-        
-        # enable btnCommit if anything dirty
-        self.btnCommit.setEnabled(self.property('dirty'))
-    
-    def isFormDirty(self) -> bool:
-        return self.property('dirty')
-
+    # delete_record
 
     ##########################################
     ########    Widget-responding procs
 
     def copyMenuOption(self):
-        cRec = self.currRec
+        cRec = self.currRec()
         mnuGrp, mnuID, optNum = (cRec.MenuGroup_id, cRec.MenuID, cRec.OptionNumber)
 
         dlg = self.cEdtMnuItmDlg_CopyMove_MenuItm(mnuGrp, mnuID, optNum, self)
@@ -897,13 +855,20 @@ class cWidgetMenuItem(QWidget):
                         session.commit()
                 #endif pk
 
-                self.makeCurrecEmpty(mnuGrp, mnuID, optNum)
+                self.initializeRec()
+                # preserve MenuGroup, MenuID, OptionNumber
+                currRec = self.currRec()
+                currRec.MenuGroup_id, currRec.MenuID, currRec.OptionNumber = mnuGrp, mnuID, optNum
+
+                self.fillFormFromcurrRec()
 
                 self.requestMenuReload.emit()   # let listeners know we need a menu reload
             #endif CMChoiceCopy
         # #endif retval
 
         return
+    # copyMenuOption
+# class cWidgetMenuItem
 
 class cEditMenu(QWidget):
     # more class constants
@@ -1024,7 +989,9 @@ class cEditMenu(QWidget):
 
     def __init__(self, parent:QWidget|None = None):
         super().__init__(parent)
-        
+
+        self.layoutMain: QBoxLayout = QVBoxLayout(self)
+        # self.layoutMain.setContentsMargins(5,5,5,5)        
         self.layoutmainMenu: QGridLayout = QGridLayout()
         self.WmenuItm: Dict[int, cEditMenu.wdgtmenuITEM] = {}
         self.layoutmenuHdr: QHBoxLayout = QHBoxLayout()
@@ -1102,20 +1069,27 @@ class cEditMenu(QWidget):
         self.layoutmenuHdr.addLayout(self.layoutmenuHdrLeft)
         self.layoutmenuHdr.addLayout(self.layoutmenuHdrRight)
         
-        self.layoutmainMenu.addLayout(self.layoutmenuHdr,0,0,1,3)
+        self.layoutMain.addLayout(self.layoutmenuHdr)
     ####
         self.bxFrame:List[QFrame] = [QFrame() for _ in range(_NUM_menuBUTTONS)]
         for bNum in range(_NUM_menuBUTTONS):
             self.bxFrame[bNum].setLineWidth(1)
             self.bxFrame[bNum].setFrameStyle(QFrame.Shape.Box|QFrame.Shadow.Plain)
-            y, x = ((bNum % _NUM_menuBTNperCOL)+1, 0 if bNum < _NUM_menuBTNperCOL else 2)
+            y, x = ((bNum % _NUM_menuBTNperCOL), 0 if bNum < _NUM_menuBTNperCOL else 2)
             self.layoutmainMenu.addWidget(self.bxFrame[bNum],y,x)
             
             self.WmenuItm[bNum] = None      # type: ignore  # later - build WmenuItm before this loop?
 
+        layoutManinMenu_wrapperWidget = QWidget()
+        layoutManinMenu_wrapperWidget.setLayout(self.layoutmainMenu)
+        self.layoutManinMenu_scrollerWidget = QScrollArea()
+        self.layoutManinMenu_scrollerWidget.setWidget(layoutManinMenu_wrapperWidget)
+        self.layoutManinMenu_scrollerWidget.setWidgetResizable(True)
+        self.layoutMain.addWidget(self.layoutManinMenu_scrollerWidget)
+        
         self.setWindowTitle(self.tr('Edit Menu'))
                     
-        self.setLayout(self.layoutmainMenu)
+        # self.setLayout(self.layoutmainMenu)
         self.loadMenu()
     # __init__
 
@@ -1275,6 +1249,11 @@ class cEditMenu(QWidget):
             self.WmenuItm[bNum].requestMenuReload.connect(lambda: self.loadMenu(self.intmenuGroup, self.intmenuID))
             self.layoutmainMenu.addWidget(self.WmenuItm[bNum],y,x) 
         # endfor
+
+        mItmH = self.WmenuItm[0].height()
+        mItmW = self.WmenuItm[0].width()
+        self.layoutManinMenu_scrollerWidget.setMinimumSize(mItmW*2+10, mItmH)
+        
      
     # displayMenu
 

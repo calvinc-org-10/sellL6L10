@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QCompleter, 
     QScrollArea, QFrame, QLayout,  QVBoxLayout, QHBoxLayout, QGridLayout, QLayoutItem, 
+    QTabWidget,
     QTableView, QHeaderView, 
     QLabel, QLineEdit,  QComboBox, QPushButton, QCheckBox, QTextEdit, QPlainTextEdit, QDateEdit, 
     )
@@ -249,3 +250,13 @@ def clearLayout(layout: QLayout, keepItems: List[QLayoutItem|QWidget|QLayout]|No
         # Spacer or other non-widget item: just drop the reference
         del item
         
+def cstdTabWidget() -> QTabWidget:
+    """Return a standard QTabWidget for use in the form layout."""
+    tabwidget = QTabWidget()
+    # tabwidget.setTabPosition(QTabWidget.TabPosition.North)
+    tabwidget.setMovable(False)
+    tabwidget.setTabsClosable(False)
+    tabwidget.setDocumentMode(True)
+    tabwidget.setTabBarAutoHide(True)
+    return tabwidget
+# _cSRF_stdTabWidget

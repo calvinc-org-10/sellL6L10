@@ -24,7 +24,7 @@ from sqlalchemy import (select, inspect, func, literal, )
 from sqlalchemy.orm import (Session, sessionmaker, )
 
 from .cQModels import (SQLAlchemyTableModel, )
-from .cQWidgets import (cDataList, cComboBoxFromDict, )
+from .cQWidgets import (cDataList, cComboBoxFromDict, cstdTabWidget, )
 from .messageBoxes import (areYouSure, )
 from .SQLAlcTools import (get_primary_key_column, )
 
@@ -820,16 +820,6 @@ class cSimpleRecordForm_Base(QWidget):
     ######################################################
     ########    Layout and field and Widget placement
 
-    def _cSRF_stdTabWidget(self) -> QTabWidget:
-        """Return a standard QTabWidget for use in the form layout."""
-        tabwidget = QTabWidget()
-        # tabwidget.setTabPosition(QTabWidget.TabPosition.North)
-        tabwidget.setMovable(False)
-        tabwidget.setTabsClosable(False)
-        tabwidget.setDocumentMode(True)
-        tabwidget.setTabBarAutoHide(True)
-        return tabwidget
-    # _cSRF_stdTabWidget
     def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]:
         """
         Build the main layout, form layout, and button layout. Must be implemented by subclasses.
@@ -1139,7 +1129,11 @@ class cSimpleRecordForm_Base(QWidget):
     # TODO: wrap with fillFormFromcurrRec
     # TODO: play with positioning of new record flag
     def showNewRecordFlag(self) -> None:
-        self._newrecFlag.setVisible(self.isNewRecord())
+        """Show or hide the 'New Record' flag based on current record state."""
+        nrf = getattr(self, '_newrecFlag', None)
+        if not isinstance(nrf, QWidget):
+            return
+        nrf.setVisible(self.isNewRecord())
 
     def repopLookups(self) -> None:
         """Repopulate all lookup widgets (e.g., after a save)."""
@@ -1584,7 +1578,7 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
         # returns tuple (layoutMain, layoutForm, layoutButtons)
 
         layoutMain = QVBoxLayout(self)
-        layoutForm = self._cSRF_stdTabWidget()
+        layoutForm = cstdTabWidget()
         layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
         self._statusBar = QStatusBar(self)
 
@@ -1843,7 +1837,8 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 # class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm):
 # nope, don't inherit from cSimpleRecordForm - that double-defines layouts, buttons, etc. Copy what we need from it instead.
 
-    def __init__(self, rec: Any, parent:"cSimpleRecordSubForm2|None"=None):
+    # def __init__(self, rec: Any, parent:"cSimpleRecordSubForm2|None"=None):
+    def __init__(self, rec: Any, parent:QWidget|None=None):
         self._ORMmodel = rec.__class__  # cannot use setORMmodel here because super not yet initialized
         if not self._ORMmodel:
             raise ValueError(f"{rec} should be a record with an ORM class")
@@ -1866,7 +1861,7 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout | None]:
 
         layoutMain = QVBoxLayout(self)
-        layoutForm = self._cSRF_stdTabWidget()
+        layoutForm = cstdTabWidget()
         self._statusBar = QStatusBar(self)
 
         self._newrecFlag = QLabel("New Rec", self)
@@ -1995,7 +1990,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     
     def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]:
         layoutMain = QVBoxLayout(self)
-        layoutForm = self._cSRF_stdTabWidget()
+        layoutForm = cstdTabWidget()
         layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
         self._statusBar = QStatusBar(self)
 
