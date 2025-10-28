@@ -260,3 +260,59 @@ def cstdTabWidget() -> QTabWidget:
     tabwidget.setTabBarAutoHide(True)
     return tabwidget
 # _cSRF_stdTabWidget
+
+class cGridWidget(QWidget):
+    """
+    A QWidget containing a grid layout, optionally scrollable.
+    Adds convenience methods to interact directly with the internal grid.
+    """
+    def __init__(self, scrollable: bool = False, parent: QWidget|None = None):
+        super().__init__(parent)
+        
+        self._scrollable = scrollable
+        
+        # Always create the grid, as it's the core content
+        thegrid = QGridLayout()
+        
+        if self._scrollable:
+            # 1. Container for the grid
+            container = QWidget()
+            container.setLayout(thegrid)
+            
+            # 2. Scroller widget
+            thescroller = QScrollArea()
+            thescroller.setWidgetResizable(True)
+            thescroller.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            thescroller.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            thescroller.setWidget(container)
+            
+            # 3. Main layout for the cGridWidget itself
+            mainlayout = QVBoxLayout(self)
+            mainlayout.setContentsMargins(0, 0, 0, 0) # Often useful when nesting containers
+            mainlayout.addWidget(thescroller)
+        else:
+            # If not scrollable, the grid is the main layout
+            mainlayout = thegrid
+        # endif scrollable
+            
+        self.setLayout(mainlayout)
+
+        # Store the grid for external access
+        self._grid: QGridLayout = thegrid
+        
+        # --- API Redirection ---
+        # Note: You can also use a property or __getattr__ for a cleaner redirection,
+        # but direct assignment is simple and effective.
+        self.addWidget = self._grid.addWidget
+        self.addLayout = self._grid.addLayout
+        self.columnCount = self._grid.columnCount
+        self.rowCount = self._grid.rowCount
+        self.itemAt = self._grid.itemAt
+        self.itemAtPosition = self._grid.itemAtPosition    
+    # __ init__
+    
+    def grid(self) -> QGridLayout:
+        """Return the internal QGridLayout."""
+        return self._grid    
+    # grid
+# cGridWidget
