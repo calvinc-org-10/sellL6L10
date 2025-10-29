@@ -92,7 +92,28 @@ class cDictModel(QAbstractTableModel):
         return flags
 
 class SQLAlchemyTableModel(QAbstractTableModel):
+    """A Qt table model backed by SQLAlchemy ORM.
+    
+    This model provides a table view interface to SQLAlchemy ORM objects,
+    with support for editing, inserting, and deleting records.
+    
+    Attributes:
+        session_factory (sessionmaker): Factory for creating database sessions.
+        model_class (Type[Any]): The SQLAlchemy ORM model class.
+        _data (list): List of ORM objects currently displayed.
+        _dirty (set): Set of (row, col) tuples that have been modified.
+        header (list): List of column names.
+    """
     def __init__(self, model_class:Type[Any], session_factory:sessionmaker, filter = None, orderby = None, parent=None):
+        """Initialize the SQLAlchemy table model.
+        
+        Args:
+            model_class (Type[Any]): SQLAlchemy ORM model class.
+            session_factory (sessionmaker): Session factory for database connections.
+            filter (optional): Filter condition for initial data load. Defaults to None.
+            orderby (optional): Order by clause for initial data load. Defaults to None.
+            parent (optional): Parent QObject. Defaults to None.
+        """
         super().__init__(parent)
         self.session_factory = sessionmaker(
             class_=session_factory.class_,
@@ -198,6 +219,11 @@ class SQLAlchemyTableModel(QAbstractTableModel):
         return True
 
     def save_changes(self):
+        """Save all modified rows to the database.
+        
+        Merges all data rows with the database session and commits the changes.
+        Clears all dirty flags after successful save.
+        """
         with self.session_factory() as session:
             for row in self._data:
                 session.merge(row)   # re-attach changes
@@ -273,12 +299,22 @@ class SQLAlchemyTableModel(QAbstractTableModel):
         return -1
     
     def getDataAsList(self) -> List[Dict[str, Any]]:
-        """Return the data as a list of dictionaries"""
+        """Return the data as a list of dictionaries.
+        
+        Returns:
+            List[Dict[str, Any]]: List where each element is a dictionary mapping
+                column names to values for each row.
+        """
         return [{col: getattr(item, col) for col in self.header} for item in self._data]
 
     # is this needed?    
     def getDataAsDict(self) -> Dict[str, Any]:
-        """Return the data as a dictionary with keys as column names and values as lists of column values"""
+        """Return the data as a dictionary with keys as column names and values as lists of column values.
+        
+        Returns:
+            Dict[str, Any]: Dictionary where keys are column names and values are lists
+                of all values in that column.
+        """
         data_dict = {col: [] for col in self.header}
         for item in self._data:
             for col in self.header:
@@ -286,7 +322,11 @@ class SQLAlchemyTableModel(QAbstractTableModel):
         return data_dict
 
     def getSQLStatement(self) -> str:
-        """Return the SQL query string used to fetch the data."""
+        """Return the SQL query string used to fetch the data.
+        
+        Returns:
+            str: Compiled SQL statement with literal binds, or empty string on error.
+        """
         try:
             stmt = select(self.model_class)
             compiled = stmt.compile(dialect=sqlite.dialect(), compile_kwargs={"literal_binds": True})
@@ -296,9 +336,24 @@ class SQLAlchemyTableModel(QAbstractTableModel):
             return ""
 
     def isDirty(self, row, col) -> bool:
+        """Check if a specific cell is dirty (modified).
+        
+        Args:
+            row (int): Row index.
+            col (int): Column index.
+        
+        Returns:
+            bool: True if the cell has been modified, False otherwise.
+        """
         return (row, col) in self._dirty
 
     def clearDirty(self, row:int|None = None, col:int|None = None):
+        """Clear dirty flags for specific row, column, or all cells.
+        
+        Args:
+            row (int | None, optional): Row to clear. If None with col also None, clears all.
+            col (int | None, optional): Column to clear. If None with row also None, clears all.
+        """
         if row is not None and col is not None:
             self._dirty.discard((row, col))
         elif row is not None:
@@ -309,7 +364,25 @@ class SQLAlchemyTableModel(QAbstractTableModel):
             self._dirty.clear()
 
 class SQLAlchemySQLQueryModel(QAbstractTableModel):
+    """A Qt table model that executes raw SQL queries.
+    
+    This model executes a raw SQL query and displays the results in a table view.
+    Unlike SQLAlchemyTableModel, this is read-only and works with raw SQL.
+    
+    Attributes:
+        sql (str): The SQL query string.
+        engine (Engine): SQLAlchemy engine for executing queries.
+        header (List[str]): List of column names from the query results.
+        _data (List[List[Any]]): Query results as a list of rows.
+    """
     def __init__(self, sql: str, engine: Engine, parent=None):
+        """Initialize the SQL query model.
+        
+        Args:
+            sql (str): SQL query string to execute.
+            engine (Engine): SQLAlchemy engine for database connection.
+            parent (optional): Parent QObject. Defaults to None.
+        """
         super().__init__(parent)
         self.sql = sql
         self.engine = engine
@@ -318,6 +391,7 @@ class SQLAlchemySQLQueryModel(QAbstractTableModel):
         self.refresh()
 
     def refresh(self):
+        """Re-execute the SQL query and refresh the model data."""
         self.beginResetModel()
         with self.engine.connect() as conn:
             result = conn.execute(sqlalchemy.text(self.sql))
@@ -326,12 +400,37 @@ class SQLAlchemySQLQueryModel(QAbstractTableModel):
         self.endResetModel()
 
     def rowCount(self, parent: QModelIndex|QPersistentModelIndex = QModelIndex()) -> int:
+        """Return the number of rows in the model.
+        
+        Args:
+            parent (QModelIndex | QPersistentModelIndex, optional): Parent index. Defaults to QModelIndex().
+        
+        Returns:
+            int: Number of rows.
+        """
         return len(self._data)
 
     def columnCount(self, parent: QModelIndex|QPersistentModelIndex = QModelIndex()) -> int:
+        """Return the number of columns in the model.
+        
+        Args:
+            parent (QModelIndex | QPersistentModelIndex, optional): Parent index. Defaults to QModelIndex().
+        
+        Returns:
+            int: Number of columns.
+        """
         return len(self.header)
 
     def data(self, index: QModelIndex|QPersistentModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        """Return data for the given index and role.
+        
+        Args:
+            index (QModelIndex | QPersistentModelIndex): Cell index.
+            role (int, optional): Data role. Defaults to Qt.ItemDataRole.DisplayRole.
+        
+        Returns:
+            Any: Cell data as string, or None if invalid.
+        """
         if not index.isValid() or role != int(Qt.ItemDataRole.DisplayRole):
             return None
         row = index.row()
@@ -341,6 +440,16 @@ class SQLAlchemySQLQueryModel(QAbstractTableModel):
         return None
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        """Return header data for the given section.
+        
+        Args:
+            section (int): Column or row number.
+            orientation (Qt.Orientation): Horizontal or vertical orientation.
+            role (int, optional): Data role. Defaults to Qt.ItemDataRole.DisplayRole.
+        
+        Returns:
+            Any: Header label string, or None.
+        """
         if role != int(Qt.ItemDataRole.DisplayRole):
             return None
         if orientation == Qt.Orientation.Horizontal:
@@ -362,12 +471,23 @@ class SQLAlchemySQLQueryModel(QAbstractTableModel):
         return None
 
     def colIndex(self, colName: str) -> int:
-        """Return the index of the specified column name."""
+        """Return the index of the specified column name.
+        
+        Args:
+            colName (str): Name of the column to find.
+        
+        Returns:
+            int: Column index, or -1 if not found.
+        """
         if colName in self.header:
             return self.header.index(colName)
         return -1
     
     def save_changes(self):
+        """Display a message that this model does not support saving changes.
+        
+        SQLAlchemySQLQueryModel is read-only and does not support direct saves.
+        """
         pleaseWriteMe(self.parent(), 'SQLAlchemySQLQueryModel does not support saving changes directly.')
         # with self.session_factory() as session:
         #     for row in self._data:

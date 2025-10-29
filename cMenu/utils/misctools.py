@@ -1,6 +1,18 @@
 import ast
 
 def show_fns(path_:str):
+    """Parse a Python file and extract information about functions and classes.
+    
+    Analyzes the abstract syntax tree (AST) of a Python file to extract
+    function and class definitions, including their signatures and line numbers.
+    
+    Args:
+        path_ (str): Path to the Python file to analyze.
+    
+    Returns:
+        dict: Dictionary with 'classes' and 'functions' keys containing lists
+            of string representations of the classes and functions found.
+    """
     dividerchar = '\u23FA'
     
     # open file as ast (abstract syntax tree)
@@ -9,6 +21,14 @@ def show_fns(path_:str):
 
     # 
     def show_fninfo(functionNode:ast.FunctionDef):
+        """Format function information as a string.
+        
+        Args:
+            functionNode (ast.FunctionDef): AST node representing a function.
+        
+        Returns:
+            str: Formatted string with function signature and line numbers.
+        """
         function_rep = ''
         function_rep = functionNode.name + '('
 
@@ -44,7 +64,16 @@ def show_fns(path_:str):
         #endif rNode type
         function_rep += f') -> {rtype} {dividerchar} lines {functionNode.lineno} to {functionNode.end_lineno}'
         return function_rep
+    
     def show_clsinfo(classNode:ast.ClassDef):
+        """Format class information as a string.
+        
+        Args:
+            classNode (ast.ClassDef): AST node representing a class.
+        
+        Returns:
+            str: Formatted string with class name, bases, and line numbers.
+        """
         class_rep = f'class {classNode.name}('
         for base in classNode.bases:
             class_rep += base.id + ',' # type: ignore
@@ -71,6 +100,15 @@ def show_fns(path_:str):
     # This prints expected output
     # fo(x), A.fun(self,y), A._bo(self,y), A.NS(y,z), B.foo(self,z), B._bar(self,t)
 def pretty_show_fns(path_:str):
+    """Parse a Python file and return a formatted string of functions and classes.
+    
+    Args:
+        path_ (str): Path to the Python file to analyze.
+    
+    Returns:
+        str: Formatted string containing all classes and functions found in the file,
+            organized by category with headers.
+    """
     result = show_fns(path_)
 
     result_str = ''

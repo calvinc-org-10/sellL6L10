@@ -47,6 +47,13 @@ class cDataList(QLineEdit):
         (all keys matching the text input)
     """
     def __init__(self, choices:Dict[Any, str], initval:str = '', parent:QWidget|None = None):
+        """Initialize the cDataList widget.
+        
+        Args:
+            choices (Dict[Any, str]): Dictionary mapping keys to display values.
+            initval (str, optional): Initial value to display. Defaults to ''.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        """
         super().__init__(initval, parent)
 
         self.choices = choices
@@ -73,6 +80,11 @@ class cDataList(QLineEdit):
     # selectedItem
     
     def addChoices(self, choices:Dict[Any, str]):
+        """Add new choices to the existing choices dictionary.
+        
+        Args:
+            choices (Dict[Any, str]): Dictionary of additional choices to add.
+        """
         self.choices.update(choices)
         
         choices_to_present = list(self.choices.values())
@@ -81,6 +93,11 @@ class cDataList(QLineEdit):
     # addChoices
     
     def setChoice(self, choiceKey:Any):
+        """Set the widget text to the value associated with the given key.
+        
+        Args:
+            choiceKey (Any): Key to look up in the choices dictionary.
+        """
         if choiceKey in self.choices:
             self.setText(self.choices[choiceKey])
         else:
@@ -100,6 +117,12 @@ class cComboBoxFromDict(QComboBox):
     _combolist:List = []
     
     def __init__(self, dict:Dict|None, parent:QWidget|None = None):
+        """Initialize a combo box from a dictionary.
+        
+        Args:
+            dict (Dict | None): Dictionary where values are data and keys are display text.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        """
         super().__init__(parent)
         
         # don't do completers - assume underlying QComboBox is non-editable
@@ -115,6 +138,11 @@ class cComboBoxFromDict(QComboBox):
         self.replaceDict(dict)
 
     def replaceDict(self, dict:Dict[str, Any]):
+        """Replace all items in the combo box with new dictionary items.
+        
+        Args:
+            dict (Dict[str, Any]): Dictionary where keys are display text and values are data.
+        """
         self.clear()
         self._combolist.clear()
         if isinstance(dict,Dict):
@@ -124,10 +152,19 @@ class cComboBoxFromDict(QComboBox):
 
 #########################################        
 
-# cQRecordsetView - Scrollable layout of records
 class cQRecordsetView(QWidget):
+    """Widget which displays a set of records in a scrollable layout.
+    
+    This widget provides a scrollable container for displaying multiple record widgets,
+    with optional functionality to add new records via a button.
+    
+    Attributes:
+        _newdgt_fn (Callable[[], QWidget] | None): Function that creates a new record widget.
+        _btnAdd (QPushButton | None): Button for adding new records.
+    """
     _newdgt_fn:Callable[[], QWidget]|None = None
     _btnAdd:QPushButton|None = None
+    
     def __init__(self, newwidget_fn:Callable[[], QWidget]|None = None, parent=None):
         """
         Widget which displays a set of records
@@ -142,6 +179,7 @@ class cQRecordsetView(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        """Initialize the UI components and layout for the recordset view."""
         self.mainLayout = QVBoxLayout(self)
 
         # set up scroll area
@@ -169,10 +207,22 @@ class cQRecordsetView(QWidget):
     # init_ui
 
     def setAddText(self, addText:str = '\nAdd\n'):
+        """Set the text for the Add button.
+        
+        Args:
+            addText (str, optional): Text to display on the Add button. Defaults to '\nAdd\n'.
+        """
         ...
     # setAddText
 
     def addWidget(self, wdgt:QWidget):
+        """Add a widget to the scrollable recordset view.
+        
+        Inserts a widget into the scroll layout with a horizontal line separator.
+        
+        Args:
+            wdgt (QWidget): Widget to add to the recordset view.
+        """
         insAt = self.scrolllayout.count()-1 if self._newdgt_fn else -1
         self.scrolllayout.insertWidget(insAt, wdgt)
         line = QFrame(self)
@@ -186,6 +236,7 @@ class cQRecordsetView(QWidget):
     # addLayout needed?
 
     def init_recSet(self):
+        """Remove all widgets from the scroll layout except the Add button."""
         # remove all widgets from scrolllayout
         # for wdgt in self.scrolllayout:
         idx = 0
@@ -202,6 +253,7 @@ class cQRecordsetView(QWidget):
     
     @Slot()
     def addBtnClicked(self):
+        """Handle the Add button click event by creating and adding a new widget."""
         if callable(self._newdgt_fn):
             self.addWidget(self._newdgt_fn())
     # addBtnClicked
@@ -264,9 +316,22 @@ def cstdTabWidget() -> QTabWidget:
 class cGridWidget(QWidget):
     """
     A QWidget containing a grid layout, optionally scrollable.
-    Adds convenience methods to interact directly with the internal grid.
+    
+    Provides convenience methods to interact directly with the internal grid.
+    The grid layout can be accessed directly through provided methods or the grid() method.
+    
+    Attributes:
+        _scrollable (bool): Whether the grid is contained in a scrollable area.
+        _grid (QGridLayout): The internal grid layout.
     """
     def __init__(self, scrollable: bool = False, parent: QWidget|None = None):
+        """Initialize a grid widget with optional scrollable container.
+        
+        Args:
+            scrollable (bool, optional): If True, grid is placed in a scrollable area.
+                Defaults to False.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        """
         super().__init__(parent)
         
         self._scrollable = scrollable

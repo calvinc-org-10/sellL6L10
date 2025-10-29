@@ -32,7 +32,18 @@ from app.database import app_Session
 
 
 class cQFmNameLabel(QLabel):
+    """A styled QLabel for displaying form titles.
+    
+    This label uses a distinctive font (Copperplate Gothic, 24pt) with a raised panel frame,
+    suitable for form headers.
+    """
     def __init__(self, formName:str = '', parent:QWidget|None = None):
+        """Initialize the form name label.
+        
+        Args:
+            formName (str, optional): Text to display as the form name. Defaults to ''.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        """
         super().__init__(parent)
         
         fontFormTitle = QFont()
@@ -46,10 +57,23 @@ class cQFmNameLabel(QLabel):
         
         if formName:
             self.setText(formName)
+    # __init__
+# endclass cQFmNameLabel
 
 # TODO: implement editing
 # deprecate? see subform widget 
 class cSimpleTableForm(QWidget):
+    """A simple form for displaying and editing a database table.
+    
+    This widget provides a basic table view with add and save functionality
+    for SQLAlchemy ORM models.
+    
+    Attributes:
+        _tbl: The SQLAlchemy ORM model class.
+        _formname: Name of the form.
+        _ssnmaker: Session maker for database connections.
+        model: The SQLAlchemyTableModel backing the table view.
+    """
     _tbl = None
     _formname = None
     _ssnmaker: sessionmaker[Session]
@@ -127,13 +151,17 @@ class cSimpleTableForm(QWidget):
         layoutForm.addLayout(layoutFormHdr)
         layoutForm.addLayout(layoutFormMain)
         layoutForm.addLayout(layoutButtons)
+    # __init__
 
     def addRow(self):
+        """Insert a new row at the end of the table."""
         self.model.insertRow(self.model.rowCount())
+    # addRow
 
     def saveRow(self):
+        """Save all changes made to the table."""
         self.model.save_changes()
-        print("Saved!")
+    # saveRow
 # endclass cSimpleTableForm
 
 ############################################################
@@ -143,23 +171,55 @@ class cSimpleTableForm(QWidget):
 
 
 class cSimpRecFmElement_Base(QWidget):
+    """Base class for form elements in simple record forms.
+    
+    This abstract base class defines the interface that all form elements must implement
+    for loading from and saving to ORM records, as well as tracking dirty state.
+    
+    Signals:
+        signalFldChanged: Emitted when the field value changes.
+        dirtyChanged: Emitted when the dirty state changes.
+    """
     signalFldChanged: Signal = Signal(object)
     dirtyChanged = Signal(bool)
     
     def loadFromRecord(self, rec: object) -> None:
-        """Fill widget from ORM record."""
+        """Fill widget from ORM record.
+        
+        Args:
+            rec: ORM record object to load data from.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError
 
     def saveToRecord(self, rec: object) -> None:
-        """Push widget state into ORM record."""
+        """Push widget state into ORM record.
+        
+        Args:
+            rec: ORM record object to save data to.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError
 
     def isDirty(self) -> bool:
-        """Return True if the widget's value differs from what was loaded."""
+        """Return True if the widget's value differs from what was loaded.
+        
+        Returns:
+            bool: True if the value has been modified, False otherwise.
+        """
         return False
 
     def setDirty(self, dirty: bool = True, sendSignal:bool = True) -> None:
-        """Mark the field/subform as dirty."""
+        """Mark the field/subform as dirty.
+        
+        Args:
+            dirty (bool, optional): Whether to mark as dirty. Defaults to True.
+            sendSignal (bool, optional): Whether to emit dirtyChanged signal. Defaults to True.
+        """
         pass
 # endclass cSimpRecFmElement_Base
 
@@ -167,6 +227,17 @@ class cSimpRecFmElement_Base(QWidget):
 # Improved cQFmFldWidg Class with Type Safety
 
 class cQFmFldWidg(cSimpRecFmElement_Base):
+    """A form field widget that wraps various Qt input widgets with a label.
+    
+    This class provides a unified interface for different types of input widgets
+    (LineEdit, ComboBox, CheckBox, etc.) with automatic label placement and
+    support for data binding to ORM models.
+    
+    Attributes:
+        _wdgt (QWidget): The wrapped input widget.
+        _label (QLabel | QCheckBox | None): The label widget.
+        _modlField (str): Name of the ORM model field this widget represents.
+    """
     _wdgt: QWidget
     _label: QLabel|QCheckBox|None = None
     _labelSetLblText: Callable[[str], None]|None = None
@@ -188,6 +259,18 @@ class cQFmFldWidg(cSimpRecFmElement_Base):
         initval: str = '',
         parent: QWidget|None = None,
     ):
+        """Initialize a form field widget.
+        
+        Args:
+            widgType (Type[QWidget]): Type of widget to create (QLineEdit, QComboBox, etc.).
+            lblText (str, optional): Label text. Defaults to ' '.
+            lblChkBxYesNo (Dict[bool, str] | None, optional): For checkboxes, maps bool to display text.
+            alignlblText (Qt.AlignmentFlag, optional): Label alignment. Defaults to AlignLeft.
+            modlFld (str, optional): ORM model field name. Defaults to ''.
+            choices (Dict | List | None, optional): Choices for combo boxes or data lists. Defaults to None.
+            initval (str, optional): Initial value. Defaults to ''.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        """
         super().__init__(parent)
         
         # Create the widget with proper typing
@@ -488,9 +571,20 @@ class cQFmFldWidg(cSimpRecFmElement_Base):
         self.setDirty(False, sendSignal=False)
 
     def isDirty(self) -> bool:
+        """Check if this field widget has unsaved changes.
+        
+        Returns:
+            bool: True if the current value differs from the loaded value.
+        """
         return self._dirty
 
     def setDirty(self, dirty: bool = True, sendSignal:bool = True) -> None:
+        """Set the dirty state of this field widget.
+        
+        Args:
+            dirty (bool, optional): Whether to mark as dirty. Defaults to True.
+            sendSignal (bool, optional): Whether to emit dirtyChanged signal. Defaults to True.
+        """
         if self._dirty == dirty:
             return
         self._dirty = dirty
@@ -519,6 +613,20 @@ class cQFmFldWidg(cSimpRecFmElement_Base):
 # endclass cQFmFldWidg
 
 class cQFmLookupWidg(cSimpRecFmElement_Base):
+    """A lookup widget that allows selection from database values.
+    
+    This widget provides a dropdown or auto-complete interface populated with
+    distinct values from a database field. It supports both cDataList and
+    cComboBoxFromDict widget types.
+    
+    Attributes:
+        _session_factory (sessionmaker[Session]): Database session factory.
+        _model: The ORM model class to lookup from.
+        _lookup_field (str): Name of the field to lookup.
+    
+    Signals:
+        signalLookupSelected: Emitted when a lookup value is selected.
+    """
     """
     returns a widget that allows the user to select from a list of values
     returns the text selected, not the key
@@ -539,6 +647,18 @@ class cQFmLookupWidg(cSimpRecFmElement_Base):
         choices: Dict | None = {},
         parent: QWidget | None = None,
     ):
+        """Initialize a lookup widget.
+        
+        Args:
+            session_factory (sessionmaker[Session]): Database session factory.
+            model (type[Any]): ORM model to look up values from.
+            lookup_field (str): Field name to look up.
+            lblText (str | None, optional): Label text. Defaults to None (uses field name).
+            alignlblText (Qt.AlignmentFlag, optional): Label alignment. Defaults to AlignLeft.
+            lookupWidgType (Type[QWidget], optional): Widget type. Defaults to cDataList.
+            choices (Dict | None, optional): Initial choices. Defaults to {}.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        """
         super().__init__(parent)
         self._session_factory = session_factory
         self._model = model
@@ -682,7 +802,10 @@ class cQFmLookupWidg(cSimpRecFmElement_Base):
         
     @Slot()
     def refreshChoices(self) -> None:
-        """Reload available values from DB."""
+        """Reload available values from the database.
+        
+        Fetches distinct values from the lookup field and updates the widget's choices.
+        """
         with self._session_factory() as session:
             field = getattr(self._model, self._lookup_field)
             values = session.scalars(select(field).distinct().order_by(field)).all()
@@ -710,13 +833,36 @@ class cQFmLookupWidg(cSimpRecFmElement_Base):
         # no setting dirty for lookups
 
     def saveToRecord(self, rec):
+        """Save the lookup widget value to a record.
+        
+        Args:
+            rec: ORM record object.
+        
+        Note:
+            Lookups don't save their values to the record, so this is a no-op.
+        """
         # lookups don't save their values to the record
         return
 
     # lookups don't become dirty
     def isDirty(self):
+        """Check if the lookup widget is dirty.
+        
+        Returns:
+            bool: Always returns False since lookups don't track dirty state.
+        """
         return False
+    
     def setDirty(self, dirty:bool = False, sendSignal:bool = False):
+        """Set the dirty state of the lookup widget.
+        
+        Args:
+            dirty (bool, optional): Dirty state. Defaults to False.
+            sendSignal (bool, optional): Whether to emit signal. Defaults to False.
+        
+        Note:
+            Lookups don't maintain dirty state, so this is a no-op.
+        """
         return
         
     @Slot()
@@ -734,6 +880,20 @@ class cQFmLookupWidg(cSimpRecFmElement_Base):
 # TODO: Handle fields that need special massaging   - let the children do the heavy lifting ??
 # TODO: pretty up NEW RECORD FLAG
 class cSimpleRecordForm_Base(QWidget):
+    """Base class for simple record forms with CRUD operations.
+    
+    This abstract base class provides the foundation for creating database-backed
+    forms with navigation, editing, and persistence capabilities. It manages
+    form fields, handles dirty state tracking, and provides standard CRUD operations.
+    
+    Attributes:
+        _ORMmodel (Type[Any] | None): The SQLAlchemy ORM model class.
+        _primary_key: Primary key column of the ORM model.
+        _currRec: Currently loaded ORM record.
+        _ssnmaker (sessionmaker[Session] | None): Database session factory.
+        pages (List): List of page/tab names for multi-page forms.
+        fieldDefs (Dict[str, Dict[str, Any]]): Field definitions for the form.
+    """
     _ORMmodel:Type[Any]|None = None
     _primary_key: Any
     _currRec: Any
@@ -753,6 +913,16 @@ class cSimpleRecordForm_Base(QWidget):
         
         parent: QWidget | None = None
         ):
+        """Initialize the base record form.
+        
+        Args:
+            model (Type[Any] | None, optional): ORM model class. Defaults to None.
+            ssnmaker (sessionmaker[Session] | None, optional): Session factory. Defaults to None.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        
+        Raises:
+            ValueError: If model or ssnmaker not provided and not set as class attributes.
+        """
         # super init
         super().__init__(parent)
  
@@ -791,13 +961,36 @@ class cSimpleRecordForm_Base(QWidget):
     ########    property and key widget getters/setters
 
     def ORMmodel(self):
+        """Get the ORM model class.
+        
+        Returns:
+            Type[Any] | None: The SQLAlchemy ORM model class.
+        """
         return self._ORMmodel
+    
     def setORMmodel(self, model):
+        """Set the ORM model class and update the primary key.
+        
+        Args:
+            model: SQLAlchemy ORM model class.
+        """
         self._ORMmodel = model
         self.setPrimary_key()
+    
     def primary_key(self):
+        """Get the primary key column.
+        
+        Returns:
+            Primary key column object.
+        """
         return self._primary_key
+    
     def setPrimary_key(self):
+        """Set the primary key from the ORM model.
+        
+        Raises:
+            Exception: If ORMmodel is not set.
+        """
         model = self.ORMmodel()
         if model is None:
             raise Exception('ORMmodel must be set first')
@@ -806,14 +999,36 @@ class cSimpleRecordForm_Base(QWidget):
     # get/set ORFMmodel/primary_key
 
     def ssnmaker(self):
+        """Get the session maker.
+        
+        Returns:
+            sessionmaker[Session] | None: Database session factory.
+        """
         return self._ssnmaker
+    
     def setssnmaker(self,ssnmaker):
+        """Set the session maker.
+        
+        Args:
+            ssnmaker: SQLAlchemy session maker.
+        """
         self._ssnmaker = ssnmaker
     # get/set ssnmaker
     
     def currRec(self):
+        """Get the current record.
+        
+        Returns:
+            Current ORM record object.
+        """
         return self._currRec
+    
     def setcurrRec(self, rec):
+        """Set the current record.
+        
+        Args:
+            rec: ORM record object to set as current.
+        """
         self._currRec = rec
     # get/set currRec
 
@@ -899,6 +1114,11 @@ class cSimpleRecordForm_Base(QWidget):
         return L if isinstance(L, QGridLayout) else None
     # FormPage
     def numPages(self) -> int:
+        """Return the number of pages/tabs in the form.
+        
+        Returns:
+            int: Number of pages.
+        """
         return len(self.pages)
         # or return self.layoutForm.count() # mebbe not - see _buildPages
     # numPages
@@ -1067,13 +1287,28 @@ class cSimpleRecordForm_Base(QWidget):
     # _placeFields
 
     def _addActionButtons(self):
+        """Add action buttons to the form.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError
     # _addActionButtons
+    
     def _handleActionButton(self, action: str) -> None:
+        """Handle action button clicks.
+        
+        Args:
+            action (str): Action name (e.g., 'save', 'delete').
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError
     # _handleActionButton
 
     def _finalizeMainLayout(self):
+        """Add all sub-layouts to the main layout in the correct order."""
         assert isinstance(self.layoutMain, QBoxLayout), 'layoutMain must be a Box Layout'
         
         lyout = getattr(self, 'layoutFormHdr', None)
@@ -1095,6 +1330,10 @@ class cSimpleRecordForm_Base(QWidget):
     ########    Display 
             
     def initialdisplay(self):
+        """Initialize and display the first record.
+        
+        Initializes a new record and loads the first record from the database.
+        """
         self.initializeRec()
         self.on_loadfirst_clicked()
         
@@ -1117,6 +1356,11 @@ class cSimpleRecordForm_Base(QWidget):
     # showError
 
     def fillFormFromcurrRec(self):
+        """Load the current record into all form fields.
+        
+        Updates all field widgets with values from the current record
+        and updates the dirty and new record flags.
+        """
         for fldDef in self.fieldDefs.values():
             fld = fldDef.get("widget")
             if fld:
@@ -1136,7 +1380,11 @@ class cSimpleRecordForm_Base(QWidget):
         nrf.setVisible(self.isNewRecord())
 
     def repopLookups(self) -> None:
-        """Repopulate all lookup widgets (e.g., after a save)."""
+        """Repopulate all lookup widgets (e.g., after a save).
+        
+        Note:
+            Currently not implemented.
+        """
         return
         for lookupWidget in self._lookupFrmElements:
             lookupWidget.repopulateChoices()
@@ -1183,6 +1431,14 @@ class cSimpleRecordForm_Base(QWidget):
     # _navigate_to
 
     def get_prev_record_id(self, recID:int) -> int:
+        """Get the ID of the previous record.
+        
+        Args:
+            recID (int): Current record ID.
+        
+        Returns:
+            int: ID of the previous record, or None if no previous record exists.
+        """
         ssnmkr = self.ssnmaker()
         assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
         pKey = self.primary_key()
@@ -1190,6 +1446,14 @@ class cSimpleRecordForm_Base(QWidget):
             prev_id = session.query(func.max(pKey)).where(pKey < recID).scalar()
         return prev_id
     def get_next_record_id(self, recID:int) -> int:
+        """Get the ID of the next record.
+        
+        Args:
+            recID (int): Current record ID.
+        
+        Returns:
+            int: ID of the next record, or None if no next record exists.
+        """
         ssnmkr = self.ssnmaker()
         pKey = self.primary_key()
         assert ssnmkr is not None, "Sessionmaker must be set before touching the database"
@@ -1198,6 +1462,7 @@ class cSimpleRecordForm_Base(QWidget):
         return next_id
         
     def on_loadfirst_clicked(self):
+        """Load the first record in the database."""
         # determine minimum id in database and load it
         ssnmkr = self.ssnmaker()
         pKey = self.primary_key()
@@ -1208,6 +1473,7 @@ class cSimpleRecordForm_Base(QWidget):
                 self._navigate_to(min_id)
 
     def on_loadprev_clicked(self):
+        """Load the previous record in the database."""
         # determine previous id in database and load it
         currRec = self.currRec()
         pKey = self.primary_key()
@@ -1217,6 +1483,7 @@ class cSimpleRecordForm_Base(QWidget):
             self._navigate_to(prev_id)
 
     def on_loadnext_clicked(self):
+        """Load the next record in the database."""
         # determine next id in database and load it
         currRec = self.currRec()
         pKey = self.primary_key()
@@ -1226,6 +1493,7 @@ class cSimpleRecordForm_Base(QWidget):
             self._navigate_to(next_id)
 
     def on_loadlast_clicked(self):
+        """Load the last record in the database."""
         # determine maximum id in database and load it
         ssnmkr = self.ssnmaker()
         pKey = self.primary_key()
@@ -1331,6 +1599,12 @@ class cSimpleRecordForm_Base(QWidget):
 
     @Slot()
     def lookup_and_load(self, fld: str, value: Any):
+        """Load a record by looking up a field value.
+        
+        Args:
+            fld (str): Field name to search.
+            value (Any): Value to search for (can be dict with 'text' key, or plain value).
+        """
         value = value.get('text', value) if isinstance(value, dict) else (getattr(value, 'text', value) if hasattr(value, 'text') else value)
         self.load_record_by_field(fld, value)
     # lookup_CIMSNum
@@ -1437,6 +1711,11 @@ class cSimpleRecordForm_Base(QWidget):
     # TODO: confirm delete
     @Slot()
     def on_delete_clicked(self):
+        """Handle delete button click.
+        
+        Prompts for confirmation, then deletes the current record and navigates
+        to a neighboring record.
+        """
         currRec = self.currRec()
         if not currRec:
             return
@@ -1484,12 +1763,18 @@ class cSimpleRecordForm_Base(QWidget):
     # ########    Record Status
 
     def isNewRecord(self) -> bool:
+        """Check if the current record is a new (unsaved) record.
+        
+        Returns:
+            bool: True if the current record has no primary key value, False otherwise.
+        """
         pKey = self.primary_key()
         currRec = self.currRec()
         return currRec is None or getattr(currRec, pKey.key) is None
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
+        """Poll children for dirty state and update save button."""
         # rethink - adapters handle their own dirty state
         # so all that needs to be set here is self.dirty
         # right?
@@ -1507,6 +1792,11 @@ class cSimpleRecordForm_Base(QWidget):
     # setFormDirty
     
     def isDirty(self) -> bool:
+        """Check if any form element is dirty.
+        
+        Returns:
+            bool: True if any child element has been modified, False otherwise.
+        """
         # poll children; if one is Dirty, form is Dirty
         for FmElement in self.children():
             if not isinstance(FmElement, cSimpRecFmElement_Base):
@@ -1524,6 +1814,14 @@ class cSimpleRecordForm_Base(QWidget):
 
 # class cSimpleRecordForm(QWidget):
 class cSimpleRecordForm(cSimpleRecordForm_Base):
+    """A concrete implementation of cSimpleRecordForm_Base with standard layout.
+    
+    This class provides a complete single-record form with navigation buttons,
+    CRUD operations, and a tabbed interface for organizing fields across multiple pages.
+    
+    Attributes:
+        _formname: Name/title of the form.
+    """
     """
     UPDATE THIS DOCUMENTATION!! UPDATE ME!!
     A simple record form for editing database records.
@@ -1575,6 +1873,12 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
     # init
 
     def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]:
+        """Build the form layout for cSimpleRecordForm.
+        
+        Returns:
+            tuple: (layoutMain, layoutForm, layoutButtons) containing the main layout,
+                tabbed form layout, and button layout.
+        """
         # returns tuple (layoutMain, layoutForm, layoutButtons)
 
         layoutMain = QVBoxLayout(self)
@@ -1667,6 +1971,11 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
     # TODO: do structure similar to _addActionButtons to allow custom button sets and define Action handlers
     #   like - duh - a dictionary
     def _handleActionButton(self, action: str) -> None:
+        """Dispatch action button clicks to appropriate handler methods.
+        
+        Args:
+            action (str): Action name (case-insensitive), e.g., 'first', 'save', 'delete'.
+        """
         # Generic action dispatch — override if needed
         action = action.lower()
         if action == "first":
@@ -1692,11 +2001,17 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
     # _handleAction
 
     def on_cancel_clicked(self):
+        """Handle the Cancel button click by closing the form.
+        
+        Note:
+            Currently just closes the form without any confirmation.
+        """
         #for now, just close form
         self.close()
     # cancel_record
 
     def repopLookups(self) -> None:
+        """Refresh all lookup widgets with current database values."""
         for lkupwdgt in self._lookupFrmElements:
             lkupwdgt.refreshChoices()
 
@@ -1705,6 +2020,26 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
 class cSimpleRecordSubForm1(cSimpRecFmElement_Base):
     # does not need to inherit from cSimpleRecordForm_Base
     # since this is mainly wrapping a table with multiple records
+    """Generic subform widget to handle a one-to-many relationship using a table view.
+    
+    This widget displays related records in a table format with add/delete functionality.
+    It manages the relationship between a parent record and multiple child records.
+    
+    Attributes:
+        _ORMmodel (Type[Any]): ORM model for the subrecords.
+        _primary_key: Primary key of the subrecord model.
+        _parentFK: Foreign key field linking to the parent record.
+        _ssnmaker: Database session factory.
+        _parentRec: Reference to the parent record.
+        _childRecs (list): List of child records.
+        _deleted_childRecs (list): List of child records pending deletion.
+    
+    Args:
+        ORMmodel (Type[Any]): ORM model for the subrecords
+        parentFK (InstrumentedAttribute): relationship FK field in the parent model
+        session_factory (sessionmaker): SQLAlchemy sessionmaker
+        parent (QWidget | None): parent widget
+    """
     """
     Generic subform widget to handle a one-to-many relationship.
     Ex: parts_needed for a WorkOrder.
@@ -1725,6 +2060,18 @@ class cSimpleRecordSubForm1(cSimpRecFmElement_Base):
         viewClass: Type[QTableView] = QTableView,
         parent=None
         ):
+        """Initialize a table-based subform.
+        
+        Args:
+            ORMmodel (Type[Any] | None, optional): ORM model for subrecords. Defaults to None.
+            parentFK (Any, optional): Parent foreign key field. Defaults to None.
+            session_factory (sessionmaker[Session] | None, optional): Database session factory. Defaults to None.
+            viewClass (Type[QTableView], optional): Table view class. Defaults to QTableView.
+            parent (optional): Parent widget. Defaults to None.
+        
+        Raises:
+            ValueError: If required parameters not provided.
+        """
         super().__init__(parent)
 
         if not self._ORMmodel:
@@ -1818,12 +2165,14 @@ class cSimpleRecordSubForm1(cSimpRecFmElement_Base):
     # --- Internal helpers ---
 
     def add_row(self):
+        """Add a new empty row to the subform table."""
         row = self._ORMmodel()
         setattr(row, self._parentFK.key, getattr(self._parentRec, self._parentRecPK.key, None))
         self.Tblmodel.insertRow(row)
     # add_row
 
     def del_row(self):
+        """Delete the selected row(s) from the subform table."""
         idxs = self.table.selectionModel().selectedRows()
         for idx in sorted(idxs, key=lambda x: x.row(), reverse=True):
             rec = self.Tblmodel.record(idx.row())
@@ -1834,11 +2183,25 @@ class cSimpleRecordSubForm1(cSimpRecFmElement_Base):
 # cSimpleRecordSubForm
 
 class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
+    """A form element representing a single subrecord.
+    
+    This class wraps a single child record in a form-like interface for use
+    within a parent form's subform list. It does not have navigation buttons.
+    """
 # class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm):
 # nope, don't inherit from cSimpleRecordForm - that double-defines layouts, buttons, etc. Copy what we need from it instead.
 
     # def __init__(self, rec: Any, parent:"cSimpleRecordSubForm2|None"=None):
     def __init__(self, rec: Any, parent:QWidget|None=None):
+        """Initialize a subrecord form element.
+        
+        Args:
+            rec (Any): ORM record to display.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        
+        Raises:
+            ValueError: If rec doesn't have an ORM class or parent doesn't have sessionmaker.
+        """
         self._ORMmodel = rec.__class__  # cannot use setORMmodel here because super not yet initialized
         if not self._ORMmodel:
             raise ValueError(f"{rec} should be a record with an ORM class")
@@ -1859,6 +2222,11 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # __init__
 
     def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout | None]:
+        """Build the layout for a subrecord form element.
+        
+        Returns:
+            tuple: (layoutMain, layoutForm, layoutButtons) where layoutButtons is None.
+        """
 
         layoutMain = QVBoxLayout(self)
         layoutForm = cstdTabWidget()
@@ -1877,6 +2245,7 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # _buildFormLayout
 
     def initialdisplay(self):
+        """Initialize display (no-op for subrecord forms since record is passed in constructor)."""
         # this is a noop here since record is passed in constructor
         return
     # initialdisplay()
@@ -1886,14 +2255,24 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     #############################################################
 
     def _placeFields(self, lookupsAllowed: bool = False) -> None:
+        """Place fields with lookups disabled."""
         return super()._placeFields(lookupsAllowed = False)
     # _placeFields
     
     def _addActionButtons(self):
+        """Add action buttons (none for subrecords)."""
         # no navigation buttons for subrecords
         return
     # _addActionButtons
     def _handleActionButton(self, action: str) -> None:
+        """Handle action button clicks.
+        
+        Args:
+            action (str): Action name.
+        
+        Note:
+            No action buttons for subrecords.
+        """
         # no action buttons for subrecords
         return
     # _handleAction
@@ -1919,11 +2298,40 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
         
 
     def setDirty(self, dirty: bool = True, sendSignal:bool = True) -> None:
+        """Mark the subform as dirty.
+        
+        Args:
+            dirty (bool, optional): Whether to mark as dirty. Defaults to True.
+            sendSignal (bool, optional): Whether to emit signal. Defaults to True.
+        
+        Note:
+            Subforms don't track their own dirty state; they poll children instead.
+        """
         """Mark the field/subform as dirty."""
         return
     # setDirty
 # cSimpRecSbFmRecord
 class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
+    """Generic subform widget to handle a one-to-many relationship using individual record forms.
+    
+    Unlike cSimpleRecordSubForm1 which uses a table view, this class presents each
+    child record in its own form widget within a list. This provides more detailed
+    editing capabilities for complex child records.
+    
+    Attributes:
+        _parentFK: Foreign key field linking to the parent record.
+        _parentRec: Reference to the parent record.
+        _parentRecPK: Primary key of the parent record.
+        _childRecs (list): List of child records.
+        _deleted_childRecs (list): List of child records pending deletion.
+        dispArea: QListWidget containing the child record forms.
+    
+    Args:
+        ORMmodel (Type[Any]): ORM model for the subrecords
+        parentFK (InstrumentedAttribute): relationship FK field in the parent model
+        session_factory (sessionmaker): SQLAlchemy sessionmaker
+        parent (QWidget | None): parent widget
+    """
     """
     Generic subform widget to handle a one-to-many relationship.
     Ex: parts_needed for a WorkOrder.
@@ -1945,6 +2353,18 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
         viewClass: Type[QListWidget] = QListWidget,
         parent=None
         ):
+        """Initialize a list-based subform for one-to-many relationships.
+        
+        Args:
+            ORMmodel (Type[Any] | None, optional): ORM model for subrecords. Defaults to None.
+            parentFK (Any, optional): Parent foreign key field. Defaults to None.
+            session_factory (sessionmaker[Session] | None, optional): Database session factory. Defaults to None.
+            viewClass (Type[QListWidget], optional): List view class. Defaults to QListWidget.
+            parent (optional): Parent widget. Defaults to None.
+        
+        Raises:
+            ValueError: If required parameters not provided.
+        """
 
         self.vwClass = viewClass
         super().__init__(model=ORMmodel, ssnmaker=session_factory, parent=parent)
@@ -1967,8 +2387,11 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     ########    property and key widget getters/setters
 
     def parentFK(self):
+        """Get the parent foreign key field."""
         return self._parentFK
+    
     def setparentFK(self, pfk):
+        """Set the parent foreign key field."""
         modl = self.ORMmodel()
         if not modl:
             raise ValueError("ORMmodel must be set before setting parentFK")
@@ -1976,10 +2399,15 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # get/set parentFK
 
     def parentRec(self):
+        """Get the parent record."""
         return self._parentRec
+    
     def parentRecPK(self):
+        """Get the parent record primary key."""
         return self._parentRecPK
+    
     def setparentRec(self, rec):
+        """Set the parent record and extract its primary key."""
         self._parentRec = rec
         self._parentRecPK = get_primary_key_column(rec.__class__)
     # get/set parentFK
@@ -1989,6 +2417,11 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     ########    Layout and field and Widget placement
     
     def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]:
+        """Build the form layout for list-based subform.
+        
+        Returns:
+            tuple: (layoutMain, layoutForm, layoutButtons) containing layouts.
+        """
         layoutMain = QVBoxLayout(self)
         layoutForm = cstdTabWidget()
         layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
@@ -2007,6 +2440,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # _buildFormLayout
 
     def _buildPages(self):
+        """Build pages (not used for list-based subforms - single page only)."""
         # nope, just the one page
         return
     # _buildPages
@@ -2029,11 +2463,13 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # # _finalizeMainLayout
 
     def _placeFields(self, lookupsAllowed: bool = True) -> None:
+        """Place fields (handled by _addDisplayRow for list-based subforms)."""
         # field placement handled by _addDisplayRow, since they are placed in a list
         return 
     # _placeFields
     
     def _addActionButtons(self):
+        """Add Add and Delete buttons to the subform."""
         # action buttons for add/remove
         btnLayout = self.layoutButtons
         assert isinstance(btnLayout, QBoxLayout), "layoutButtons must be a Box Layout"
@@ -2051,6 +2487,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     ########    Display 
             
     def initialdisplay(self):
+        """Initialize display (not used - record passed in constructor)."""
         # not used here - record passed in constructor
         return
     # initialdisplay()
@@ -2070,6 +2507,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     ########    Create
 
     def add_row(self):
+        """Add a new subrecord row to the list."""
         modl = self.ORMmodel()
         assert modl is not None, "ORMmodel must be set before deleting record"
         row = modl()
@@ -2159,6 +2597,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 
     #TODO: implement del_row
     def del_row(self):
+        """Delete selected subrecord rows (not yet fully implemented)."""
         idxs = self.dispArea.selectionModel().selectedRows()    # does dispArea have selectionModel()?
         # for idx in sorted(idxs, key=lambda x: x.row(), reverse=True):
         #     rec = self.Tblmodel.record(idx.row())
@@ -2176,6 +2615,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
+        """Mark dirty state (currently a no-op as dirty tracking is delegated to child elements)."""
         # rethink - adapters handle their own dirty state
         # so all that needs to be set here is self.dirty
         # right?
@@ -2190,6 +2630,11 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # setFormDirty
 
     def isDirty(self) -> bool:
+        """Check if any child form element is dirty.
+        
+        Returns:
+            bool: True if any child element has been modified.
+        """
         # poll children; if one is Dirty, form is Dirty
         # for rec in _rcrdDisplArea.children():
         for FmElement in self.children():

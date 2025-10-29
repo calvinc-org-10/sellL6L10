@@ -13,6 +13,19 @@ retListofSQLRecord = retListofQSQLRecord
 
 
 def recordsetList(tbl:Table|FromClause, retFlds:int|List[str] = retListofQSQLRecord, filter:str|None = None, ssnmaker: sessionmaker[Session] = cMenu_Session) -> List:
+    """Execute a SELECT query and return a list of record mappings.
+    
+    Args:
+        tbl (Table | FromClause): The table or query object to select from.
+        retFlds (int | List[str], optional): Fields to return. Can be a list of field names,
+            '*' for all fields, or retListofQSQLRecord constant. Defaults to retListofQSQLRecord.
+        filter (str | None, optional): WHERE clause filter as a string. Defaults to None.
+        ssnmaker (sessionmaker[Session], optional): Session maker for database connection.
+            Defaults to cMenu_Session.
+    
+    Returns:
+        List: List of record mappings (dictionaries) with the query results.
+    """
     if retFlds == '*' or (isinstance(retFlds,List) and retFlds[0]=='*') or retFlds == retListofQSQLRecord:
         stmt = select(tbl)
     elif isinstance(retFlds, List):
