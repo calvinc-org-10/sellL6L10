@@ -567,9 +567,20 @@ class cQFmFldWidg(cSimpRecFmElement_Base):
         self.setDirty(False, sendSignal=False)
 
     def isDirty(self) -> bool:
+        """Check if this field widget has unsaved changes.
+        
+        Returns:
+            bool: True if the current value differs from the loaded value.
+        """
         return self._dirty
 
     def setDirty(self, dirty: bool = True, sendSignal:bool = True) -> None:
+        """Set the dirty state of this field widget.
+        
+        Args:
+            dirty (bool, optional): Whether to mark as dirty. Defaults to True.
+            sendSignal (bool, optional): Whether to emit dirtyChanged signal. Defaults to True.
+        """
         if self._dirty == dirty:
             return
         self._dirty = dirty
@@ -818,6 +829,14 @@ class cQFmLookupWidg(cSimpRecFmElement_Base):
         # no setting dirty for lookups
 
     def saveToRecord(self, rec):
+        """Save the lookup widget value to a record.
+        
+        Args:
+            rec: ORM record object.
+        
+        Note:
+            Lookups don't save their values to the record, so this is a no-op.
+        """
         # lookups don't save their values to the record
         return
 
@@ -1751,7 +1770,8 @@ class cSimpleRecordForm_Base(QWidget):
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
-        # rethink - adapters handle their own dirty state
+        # rethink
+        """Poll children for dirty state and update save button.""" - adapters handle their own dirty state
         # so all that needs to be set here is self.dirty
         # right?
         
@@ -1849,6 +1869,12 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
     # init
 
     def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]:
+        """Build the form layout for cSimpleRecordForm.
+        
+        Returns:
+            tuple: (layoutMain, layoutForm, layoutButtons) containing the main layout,
+                tabbed form layout, and button layout.
+        """
         # returns tuple (layoutMain, layoutForm, layoutButtons)
 
         layoutMain = QVBoxLayout(self)
@@ -1941,6 +1967,11 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
     # TODO: do structure similar to _addActionButtons to allow custom button sets and define Action handlers
     #   like - duh - a dictionary
     def _handleActionButton(self, action: str) -> None:
+        """Dispatch action button clicks to appropriate handler methods.
+        
+        Args:
+            action (str): Action name (case-insensitive), e.g., 'first', 'save', 'delete'.
+        """
         # Generic action dispatch — override if needed
         action = action.lower()
         if action == "first":
@@ -2025,6 +2056,18 @@ class cSimpleRecordSubForm1(cSimpRecFmElement_Base):
         viewClass: Type[QTableView] = QTableView,
         parent=None
         ):
+        """Initialize a table-based subform.
+        
+        Args:
+            ORMmodel (Type[Any] | None, optional): ORM model for subrecords. Defaults to None.
+            parentFK (Any, optional): Parent foreign key field. Defaults to None.
+            session_factory (sessionmaker[Session] | None, optional): Database session factory. Defaults to None.
+            viewClass (Type[QTableView], optional): Table view class. Defaults to QTableView.
+            parent (optional): Parent widget. Defaults to None.
+        
+        Raises:
+            ValueError: If required parameters not provided.
+        """
         super().__init__(parent)
 
         if not self._ORMmodel:
@@ -2146,6 +2189,15 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 
     # def __init__(self, rec: Any, parent:"cSimpleRecordSubForm2|None"=None):
     def __init__(self, rec: Any, parent:QWidget|None=None):
+        """Initialize a subrecord form element.
+        
+        Args:
+            rec (Any): ORM record to display.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        
+        Raises:
+            ValueError: If rec doesn't have an ORM class or parent doesn't have sessionmaker.
+        """
         self._ORMmodel = rec.__class__  # cannot use setORMmodel here because super not yet initialized
         if not self._ORMmodel:
             raise ValueError(f"{rec} should be a record with an ORM class")
@@ -2166,6 +2218,11 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # __init__
 
     def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout | None]:
+        """Build the layout for a subrecord form element.
+        
+        Returns:
+            tuple: (layoutMain, layoutForm, layoutButtons) where layoutButtons is None.
+        """
 
         layoutMain = QVBoxLayout(self)
         layoutForm = cstdTabWidget()
@@ -2184,7 +2241,8 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # _buildFormLayout
 
     def initialdisplay(self):
-        # this is a noop here since record is passed in constructor
+        # this is a noop
+        """Initialize display (no-op for subrecord forms).""" here since record is passed in constructor
         return
     # initialdisplay()
 
@@ -2193,14 +2251,24 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     #############################################################
 
     def _placeFields(self, lookupsAllowed: bool = False) -> None:
-        return super()._placeFields(lookupsAllowed = False)
+        return super()._placeFields
+        """Place fields with lookups disabled."""(lookupsAllowed = False)
     # _placeFields
     
     def _addActionButtons(self):
-        # no navigation buttons for subrecords
+        # no navigation buttons
+        """Add action buttons (none for subrecords).""" for subrecords
         return
     # _addActionButtons
     def _handleActionButton(self, action: str) -> None:
+        """Handle action button clicks.
+        
+        Args:
+            action (str): Action name.
+        
+        Note:
+            No action buttons for subrecords.
+        """
         # no action buttons for subrecords
         return
     # _handleAction
@@ -2226,6 +2294,15 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
         
 
     def setDirty(self, dirty: bool = True, sendSignal:bool = True) -> None:
+        """Mark the subform as dirty.
+        
+        Args:
+            dirty (bool, optional): Whether to mark as dirty. Defaults to True.
+            sendSignal (bool, optional): Whether to emit signal. Defaults to True.
+        
+        Note:
+            Subforms don't track their own dirty state; they poll children instead.
+        """
         """Mark the field/subform as dirty."""
         return
     # setDirty
@@ -2272,6 +2349,18 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
         viewClass: Type[QListWidget] = QListWidget,
         parent=None
         ):
+        """Initialize a list-based subform for one-to-many relationships.
+        
+        Args:
+            ORMmodel (Type[Any] | None, optional): ORM model for subrecords. Defaults to None.
+            parentFK (Any, optional): Parent foreign key field. Defaults to None.
+            session_factory (sessionmaker[Session] | None, optional): Database session factory. Defaults to None.
+            viewClass (Type[QListWidget], optional): List view class. Defaults to QListWidget.
+            parent (optional): Parent widget. Defaults to None.
+        
+        Raises:
+            ValueError: If required parameters not provided.
+        """
 
         self.vwClass = viewClass
         super().__init__(model=ORMmodel, ssnmaker=session_factory, parent=parent)
@@ -2295,8 +2384,10 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 
     def parentFK(self):
         return self._parentFK
+        """Get the parent foreign key field."""
     def setparentFK(self, pfk):
         modl = self.ORMmodel()
+        """Set the parent foreign key field."""
         if not modl:
             raise ValueError("ORMmodel must be set before setting parentFK")
         self._parentFK = getattr(modl, pfk) if isinstance(pfk, str) else pfk
@@ -2304,10 +2395,13 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 
     def parentRec(self):
         return self._parentRec
+        """Get the parent record."""
     def parentRecPK(self):
         return self._parentRecPK
+        """Get the parent record primary key."""
     def setparentRec(self, rec):
         self._parentRec = rec
+        """Set the parent record and extract its primary key."""
         self._parentRecPK = get_primary_key_column(rec.__class__)
     # get/set parentFK
 
@@ -2503,7 +2597,8 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
-        # rethink - adapters handle their own dirty state
+        # rethink
+        """Poll children for dirty state and update save button.""" - adapters handle their own dirty state
         # so all that needs to be set here is self.dirty
         # right?
 
