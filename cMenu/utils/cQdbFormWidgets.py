@@ -1770,8 +1770,8 @@ class cSimpleRecordForm_Base(QWidget):
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
-        # rethink
-        """Poll children for dirty state and update save button.""" - adapters handle their own dirty state
+        """Poll children for dirty state and update save button."""
+        # rethink - adapters handle their own dirty state
         # so all that needs to be set here is self.dirty
         # right?
         
@@ -2241,8 +2241,8 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # _buildFormLayout
 
     def initialdisplay(self):
-        # this is a noop
-        """Initialize display (no-op for subrecord forms).""" here since record is passed in constructor
+        """Initialize display (no-op for subrecord forms since record is passed in constructor)."""
+        # this is a noop here since record is passed in constructor
         return
     # initialdisplay()
 
@@ -2251,13 +2251,13 @@ class cSimpRecSbFmRecord(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     #############################################################
 
     def _placeFields(self, lookupsAllowed: bool = False) -> None:
-        return super()._placeFields
-        """Place fields with lookups disabled."""(lookupsAllowed = False)
+        """Place fields with lookups disabled."""
+        return super()._placeFields(lookupsAllowed = False)
     # _placeFields
     
     def _addActionButtons(self):
-        # no navigation buttons
-        """Add action buttons (none for subrecords).""" for subrecords
+        """Add action buttons (none for subrecords)."""
+        # no navigation buttons for subrecords
         return
     # _addActionButtons
     def _handleActionButton(self, action: str) -> None:
@@ -2383,25 +2383,28 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     ########    property and key widget getters/setters
 
     def parentFK(self):
-        return self._parentFK
         """Get the parent foreign key field."""
+        return self._parentFK
+    
     def setparentFK(self, pfk):
-        modl = self.ORMmodel()
         """Set the parent foreign key field."""
+        modl = self.ORMmodel()
         if not modl:
             raise ValueError("ORMmodel must be set before setting parentFK")
         self._parentFK = getattr(modl, pfk) if isinstance(pfk, str) else pfk
     # get/set parentFK
 
     def parentRec(self):
-        return self._parentRec
         """Get the parent record."""
+        return self._parentRec
+    
     def parentRecPK(self):
-        return self._parentRecPK
         """Get the parent record primary key."""
+        return self._parentRecPK
+    
     def setparentRec(self, rec):
-        self._parentRec = rec
         """Set the parent record and extract its primary key."""
+        self._parentRec = rec
         self._parentRecPK = get_primary_key_column(rec.__class__)
     # get/set parentFK
 
@@ -2410,6 +2413,11 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     ########    Layout and field and Widget placement
     
     def _buildFormLayout(self) -> tuple[QBoxLayout, QTabWidget, QBoxLayout|None]:
+        """Build the form layout for list-based subform.
+        
+        Returns:
+            tuple: (layoutMain, layoutForm, layoutButtons) containing layouts.
+        """
         layoutMain = QVBoxLayout(self)
         layoutForm = cstdTabWidget()
         layoutButtons = QHBoxLayout()  # may get redefined in _addActionButtons
@@ -2428,6 +2436,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # _buildFormLayout
 
     def _buildPages(self):
+        """Build pages (not used for list-based subforms - single page only)."""
         # nope, just the one page
         return
     # _buildPages
@@ -2450,11 +2459,13 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # # _finalizeMainLayout
 
     def _placeFields(self, lookupsAllowed: bool = True) -> None:
+        """Place fields (handled by _addDisplayRow for list-based subforms)."""
         # field placement handled by _addDisplayRow, since they are placed in a list
         return 
     # _placeFields
     
     def _addActionButtons(self):
+        """Add Add and Delete buttons to the subform."""
         # action buttons for add/remove
         btnLayout = self.layoutButtons
         assert isinstance(btnLayout, QBoxLayout), "layoutButtons must be a Box Layout"
@@ -2472,6 +2483,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     ########    Display 
             
     def initialdisplay(self):
+        """Initialize display (not used - record passed in constructor)."""
         # not used here - record passed in constructor
         return
     # initialdisplay()
@@ -2491,6 +2503,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     ########    Create
 
     def add_row(self):
+        """Add a new subrecord row to the list."""
         modl = self.ORMmodel()
         assert modl is not None, "ORMmodel must be set before deleting record"
         row = modl()
@@ -2580,6 +2593,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 
     #TODO: implement del_row
     def del_row(self):
+        """Delete selected subrecord rows (not yet fully implemented)."""
         idxs = self.dispArea.selectionModel().selectedRows()    # does dispArea have selectionModel()?
         # for idx in sorted(idxs, key=lambda x: x.row(), reverse=True):
         #     rec = self.Tblmodel.record(idx.row())
@@ -2597,8 +2611,8 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
-        # rethink
-        """Poll children for dirty state and update save button.""" - adapters handle their own dirty state
+        """Poll children for dirty state (no-op for subforms)."""
+        # rethink - adapters handle their own dirty state
         # so all that needs to be set here is self.dirty
         # right?
 
@@ -2612,6 +2626,11 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
     # setFormDirty
 
     def isDirty(self) -> bool:
+        """Check if any child form element is dirty.
+        
+        Returns:
+            bool: True if any child element has been modified.
+        """
         # poll children; if one is Dirty, form is Dirty
         # for rec in _rcrdDisplArea.children():
         for FmElement in self.children():
