@@ -47,6 +47,13 @@ class cDataList(QLineEdit):
         (all keys matching the text input)
     """
     def __init__(self, choices:Dict[Any, str], initval:str = '', parent:QWidget|None = None):
+        """Initialize the cDataList widget.
+        
+        Args:
+            choices (Dict[Any, str]): Dictionary mapping keys to display values.
+            initval (str, optional): Initial value to display. Defaults to ''.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        """
         super().__init__(initval, parent)
 
         self.choices = choices
@@ -73,6 +80,11 @@ class cDataList(QLineEdit):
     # selectedItem
     
     def addChoices(self, choices:Dict[Any, str]):
+        """Add new choices to the existing choices dictionary.
+        
+        Args:
+            choices (Dict[Any, str]): Dictionary of additional choices to add.
+        """
         self.choices.update(choices)
         
         choices_to_present = list(self.choices.values())
@@ -81,6 +93,11 @@ class cDataList(QLineEdit):
     # addChoices
     
     def setChoice(self, choiceKey:Any):
+        """Set the widget text to the value associated with the given key.
+        
+        Args:
+            choiceKey (Any): Key to look up in the choices dictionary.
+        """
         if choiceKey in self.choices:
             self.setText(self.choices[choiceKey])
         else:
@@ -100,6 +117,12 @@ class cComboBoxFromDict(QComboBox):
     _combolist:List = []
     
     def __init__(self, dict:Dict|None, parent:QWidget|None = None):
+        """Initialize a combo box from a dictionary.
+        
+        Args:
+            dict (Dict | None): Dictionary where values are data and keys are display text.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        """
         super().__init__(parent)
         
         # don't do completers - assume underlying QComboBox is non-editable
@@ -115,6 +138,11 @@ class cComboBoxFromDict(QComboBox):
         self.replaceDict(dict)
 
     def replaceDict(self, dict:Dict[str, Any]):
+        """Replace all items in the combo box with new dictionary items.
+        
+        Args:
+            dict (Dict[str, Any]): Dictionary where keys are display text and values are data.
+        """
         self.clear()
         self._combolist.clear()
         if isinstance(dict,Dict):

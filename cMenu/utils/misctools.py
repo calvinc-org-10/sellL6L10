@@ -21,6 +21,14 @@ def show_fns(path_:str):
 
     # 
     def show_fninfo(functionNode:ast.FunctionDef):
+        """Format function information as a string.
+        
+        Args:
+            functionNode (ast.FunctionDef): AST node representing a function.
+        
+        Returns:
+            str: Formatted string with function signature and line numbers.
+        """
         function_rep = ''
         function_rep = functionNode.name + '('
 
@@ -56,7 +64,16 @@ def show_fns(path_:str):
         #endif rNode type
         function_rep += f') -> {rtype} {dividerchar} lines {functionNode.lineno} to {functionNode.end_lineno}'
         return function_rep
+    
     def show_clsinfo(classNode:ast.ClassDef):
+        """Format class information as a string.
+        
+        Args:
+            classNode (ast.ClassDef): AST node representing a class.
+        
+        Returns:
+            str: Formatted string with class name, bases, and line numbers.
+        """
         class_rep = f'class {classNode.name}('
         for base in classNode.bases:
             class_rep += base.id + ',' # type: ignore

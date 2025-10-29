@@ -219,6 +219,11 @@ class SQLAlchemyTableModel(QAbstractTableModel):
         return True
 
     def save_changes(self):
+        """Save all modified rows to the database.
+        
+        Merges all data rows with the database session and commits the changes.
+        Clears all dirty flags after successful save.
+        """
         with self.session_factory() as session:
             for row in self._data:
                 session.merge(row)   # re-attach changes
@@ -395,12 +400,37 @@ class SQLAlchemySQLQueryModel(QAbstractTableModel):
         self.endResetModel()
 
     def rowCount(self, parent: QModelIndex|QPersistentModelIndex = QModelIndex()) -> int:
+        """Return the number of rows in the model.
+        
+        Args:
+            parent (QModelIndex | QPersistentModelIndex, optional): Parent index. Defaults to QModelIndex().
+        
+        Returns:
+            int: Number of rows.
+        """
         return len(self._data)
 
     def columnCount(self, parent: QModelIndex|QPersistentModelIndex = QModelIndex()) -> int:
+        """Return the number of columns in the model.
+        
+        Args:
+            parent (QModelIndex | QPersistentModelIndex, optional): Parent index. Defaults to QModelIndex().
+        
+        Returns:
+            int: Number of columns.
+        """
         return len(self.header)
 
     def data(self, index: QModelIndex|QPersistentModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        """Return data for the given index and role.
+        
+        Args:
+            index (QModelIndex | QPersistentModelIndex): Cell index.
+            role (int, optional): Data role. Defaults to Qt.ItemDataRole.DisplayRole.
+        
+        Returns:
+            Any: Cell data as string, or None if invalid.
+        """
         if not index.isValid() or role != int(Qt.ItemDataRole.DisplayRole):
             return None
         row = index.row()
@@ -410,6 +440,16 @@ class SQLAlchemySQLQueryModel(QAbstractTableModel):
         return None
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        """Return header data for the given section.
+        
+        Args:
+            section (int): Column or row number.
+            orientation (Qt.Orientation): Horizontal or vertical orientation.
+            role (int, optional): Data role. Defaults to Qt.ItemDataRole.DisplayRole.
+        
+        Returns:
+            Any: Header label string, or None.
+        """
         if role != int(Qt.ItemDataRole.DisplayRole):
             return None
         if orientation == Qt.Orientation.Horizontal:

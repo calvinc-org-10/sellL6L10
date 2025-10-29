@@ -255,6 +255,18 @@ class cQFmFldWidg(cSimpRecFmElement_Base):
         initval: str = '',
         parent: QWidget|None = None,
     ):
+        """Initialize a form field widget.
+        
+        Args:
+            widgType (Type[QWidget]): Type of widget to create (QLineEdit, QComboBox, etc.).
+            lblText (str, optional): Label text. Defaults to ' '.
+            lblChkBxYesNo (Dict[bool, str] | None, optional): For checkboxes, maps bool to display text.
+            alignlblText (Qt.AlignmentFlag, optional): Label alignment. Defaults to AlignLeft.
+            modlFld (str, optional): ORM model field name. Defaults to ''.
+            choices (Dict | List | None, optional): Choices for combo boxes or data lists. Defaults to None.
+            initval (str, optional): Initial value. Defaults to ''.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        """
         super().__init__(parent)
         
         # Create the widget with proper typing
@@ -620,6 +632,18 @@ class cQFmLookupWidg(cSimpRecFmElement_Base):
         choices: Dict | None = {},
         parent: QWidget | None = None,
     ):
+        """Initialize a lookup widget.
+        
+        Args:
+            session_factory (sessionmaker[Session]): Database session factory.
+            model (type[Any]): ORM model to look up values from.
+            lookup_field (str): Field name to look up.
+            lblText (str | None, optional): Label text. Defaults to None (uses field name).
+            alignlblText (Qt.AlignmentFlag, optional): Label alignment. Defaults to AlignLeft.
+            lookupWidgType (Type[QWidget], optional): Widget type. Defaults to cDataList.
+            choices (Dict | None, optional): Initial choices. Defaults to {}.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        """
         super().__init__(parent)
         self._session_factory = session_factory
         self._model = model
@@ -799,8 +823,23 @@ class cQFmLookupWidg(cSimpRecFmElement_Base):
 
     # lookups don't become dirty
     def isDirty(self):
+        """Check if the lookup widget is dirty.
+        
+        Returns:
+            bool: Always returns False since lookups don't track dirty state.
+        """
         return False
+    
     def setDirty(self, dirty:bool = False, sendSignal:bool = False):
+        """Set the dirty state of the lookup widget.
+        
+        Args:
+            dirty (bool, optional): Dirty state. Defaults to False.
+            sendSignal (bool, optional): Whether to emit signal. Defaults to False.
+        
+        Note:
+            Lookups don't maintain dirty state, so this is a no-op.
+        """
         return
         
     @Slot()
@@ -851,6 +890,16 @@ class cSimpleRecordForm_Base(QWidget):
         
         parent: QWidget | None = None
         ):
+        """Initialize the base record form.
+        
+        Args:
+            model (Type[Any] | None, optional): ORM model class. Defaults to None.
+            ssnmaker (sessionmaker[Session] | None, optional): Session factory. Defaults to None.
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+        
+        Raises:
+            ValueError: If model or ssnmaker not provided and not set as class attributes.
+        """
         # super init
         super().__init__(parent)
  
@@ -1042,6 +1091,11 @@ class cSimpleRecordForm_Base(QWidget):
         return L if isinstance(L, QGridLayout) else None
     # FormPage
     def numPages(self) -> int:
+        """Return the number of pages/tabs in the form.
+        
+        Returns:
+            int: Number of pages.
+        """
         return len(self.pages)
         # or return self.layoutForm.count() # mebbe not - see _buildPages
     # numPages
@@ -1210,13 +1264,28 @@ class cSimpleRecordForm_Base(QWidget):
     # _placeFields
 
     def _addActionButtons(self):
+        """Add action buttons to the form.
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError
     # _addActionButtons
+    
     def _handleActionButton(self, action: str) -> None:
+        """Handle action button clicks.
+        
+        Args:
+            action (str): Action name (e.g., 'save', 'delete').
+        
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError
     # _handleActionButton
 
     def _finalizeMainLayout(self):
+        """Add all sub-layouts to the main layout in the correct order."""
         assert isinstance(self.layoutMain, QBoxLayout), 'layoutMain must be a Box Layout'
         
         lyout = getattr(self, 'layoutFormHdr', None)
@@ -1507,6 +1576,12 @@ class cSimpleRecordForm_Base(QWidget):
 
     @Slot()
     def lookup_and_load(self, fld: str, value: Any):
+        """Load a record by looking up a field value.
+        
+        Args:
+            fld (str): Field name to search.
+            value (Any): Value to search for (can be dict with 'text' key, or plain value).
+        """
         value = value.get('text', value) if isinstance(value, dict) else (getattr(value, 'text', value) if hasattr(value, 'text') else value)
         self.load_record_by_field(fld, value)
     # lookup_CIMSNum
@@ -1613,6 +1688,11 @@ class cSimpleRecordForm_Base(QWidget):
     # TODO: confirm delete
     @Slot()
     def on_delete_clicked(self):
+        """Handle delete button click.
+        
+        Prompts for confirmation, then deletes the current record and navigates
+        to a neighboring record.
+        """
         currRec = self.currRec()
         if not currRec:
             return
@@ -1688,6 +1768,11 @@ class cSimpleRecordForm_Base(QWidget):
     # setFormDirty
     
     def isDirty(self) -> bool:
+        """Check if any form element is dirty.
+        
+        Returns:
+            bool: True if any child element has been modified, False otherwise.
+        """
         # poll children; if one is Dirty, form is Dirty
         for FmElement in self.children():
             if not isinstance(FmElement, cSimpRecFmElement_Base):
