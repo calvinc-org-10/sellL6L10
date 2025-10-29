@@ -2611,7 +2611,7 @@ class cSimpleRecordSubForm2(cSimpRecFmElement_Base, cSimpleRecordForm_Base):
 
     @Slot()
     def setDirty(self, wdgt, dirty: bool = True):
-        """Poll children for dirty state (no-op for subforms)."""
+        """Mark dirty state (currently a no-op as dirty tracking is delegated to child elements)."""
         # rethink - adapters handle their own dirty state
         # so all that needs to be set here is self.dirty
         # right?
