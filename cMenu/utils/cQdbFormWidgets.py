@@ -57,6 +57,8 @@ class cQFmNameLabel(QLabel):
         
         if formName:
             self.setText(formName)
+    # __init__
+# endclass cQFmNameLabel
 
 # TODO: implement editing
 # deprecate? see subform widget 
@@ -149,15 +151,17 @@ class cSimpleTableForm(QWidget):
         layoutForm.addLayout(layoutFormHdr)
         layoutForm.addLayout(layoutFormMain)
         layoutForm.addLayout(layoutButtons)
+    # __init__
 
     def addRow(self):
         """Insert a new row at the end of the table."""
         self.model.insertRow(self.model.rowCount())
+    # addRow
 
     def saveRow(self):
         """Save all changes made to the table."""
         self.model.save_changes()
-        print("Saved!")
+    # saveRow
 # endclass cSimpleTableForm
 
 ############################################################
