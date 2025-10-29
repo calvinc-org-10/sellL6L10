@@ -1,6 +1,18 @@
 import ast
 
 def show_fns(path_:str):
+    """Parse a Python file and extract information about functions and classes.
+    
+    Analyzes the abstract syntax tree (AST) of a Python file to extract
+    function and class definitions, including their signatures and line numbers.
+    
+    Args:
+        path_ (str): Path to the Python file to analyze.
+    
+    Returns:
+        dict: Dictionary with 'classes' and 'functions' keys containing lists
+            of string representations of the classes and functions found.
+    """
     dividerchar = '\u23FA'
     
     # open file as ast (abstract syntax tree)
@@ -71,6 +83,15 @@ def show_fns(path_:str):
     # This prints expected output
     # fo(x), A.fun(self,y), A._bo(self,y), A.NS(y,z), B.foo(self,z), B._bar(self,t)
 def pretty_show_fns(path_:str):
+    """Parse a Python file and return a formatted string of functions and classes.
+    
+    Args:
+        path_ (str): Path to the Python file to analyze.
+    
+    Returns:
+        str: Formatted string containing all classes and functions found in the file,
+            organized by category with headers.
+    """
     result = show_fns(path_)
 
     result_str = ''

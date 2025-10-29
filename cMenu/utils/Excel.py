@@ -85,13 +85,29 @@ def Excelfile_fromqs(qset:SQLAlchemyTableModel|List[Dict[str, Any]], flName:str|
 
 
 class UpldSprdsheet():
+    """Base class for handling spreadsheet uploads with field validation.
+    
+    This class provides functionality for processing uploaded spreadsheets,
+    validating field types, and cleaning data according to defined rules.
+    
+    Attributes:
+        TargetModel: The target ORM model class for the spreadsheet data.
+        SprdsheetDateEpoch: Date epoch used for spreadsheet date conversion.
+        SprdsheetFlds (dict): Dictionary mapping spreadsheet field names to field descriptors.
+    """
     TargetModel = None
     SprdsheetDateEpoch = WINDOWS_EPOCH
 
     def SprdsheetFldDescriptor_creator(self, ModelFldName, AllowedTypes):
-        """
-        ModelFldName (str): the name of the field in the TargetModel
-        AllowedTypes: list of tuples (type, cleanproc).  empty list if any string allowed
+        """Create a field descriptor for spreadsheet field validation.
+        
+        Args:
+            ModelFldName (str): The name of the field in the TargetModel.
+            AllowedTypes: List of tuples (type, cleanproc) specifying allowed types
+                and their cleaning procedures. Empty list if any string is allowed.
+        
+        Returns:
+            dict: Field descriptor dictionary with ModelFldName and AllowedTypes.
         """
         return  {
             # 'SprdsheetName': None,    # nope, this will be the index of SprdsheetFlds
@@ -102,6 +118,16 @@ class UpldSprdsheet():
     SprdsheetFlds = {}  # key will be the SprdsheetName, value is a SprdsheetFldDescriptor
 
     def cleanupfld(self, fld, val):
+        """Clean and validate a field value according to its allowed types.
+        
+        Args:
+            fld: Field name to clean.
+            val: Value to clean and validate.
+        
+        Returns:
+            tuple: (usefld, cleanval) where usefld is True if the field should be used,
+                and cleanval is the cleaned value.
+        """
         usefld = False
         cleanval = None
         
@@ -123,5 +149,13 @@ class UpldSprdsheet():
         #endif fld not in self.SprdsheetFlds
 
     def process_spreadsheet(self, SprsheetName):
+        """Process a spreadsheet file.
+        
+        Args:
+            SprsheetName: Name or path of the spreadsheet to process.
+        
+        Note:
+            This method is not yet implemented.
+        """
         pass
 

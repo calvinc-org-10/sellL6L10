@@ -21,6 +21,12 @@ std_popdialogsize=QSize(400,300)
 
 
 def pleaseWriteMe(parent, addlmessage):
+    """Display a message box indicating that a feature needs to be implemented.
+    
+    Args:
+        parent: Parent widget for the message box.
+        addlmessage: Additional message to display to the user.
+    """
     msg = QMessageBox(parent)
     msg.setWindowTitle('Please Write Me')
     msg.setIcon(QMessageBox.Icon.Warning)
@@ -34,13 +40,40 @@ def areYouSure(parent:QWidget, title:str,
         answerChoices:QMessageBox.StandardButton = QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
         dfltAnswer:QMessageBox.StandardButton = QMessageBox.StandardButton.No,
         ) -> QMessageBox.StandardButton:
+    """Display a confirmation dialog and return the user's choice.
+    
+    Args:
+        parent (QWidget): Parent widget for the message box.
+        title (str): Title of the message box.
+        areYouSureQuestion (str): Question to ask the user.
+        answerChoices (QMessageBox.StandardButton, optional): Available answer buttons.
+            Defaults to Yes|No.
+        dfltAnswer (QMessageBox.StandardButton, optional): Default button.
+            Defaults to No.
+    
+    Returns:
+        QMessageBox.StandardButton: The button that was clicked.
+    """
     ret = QMessageBox.question(parent, title,
         areYouSureQuestion, answerChoices, dfltAnswer)
     return ret
 
 class UnderConstruction_Dialog(QDialog):
+    """A dialog that displays an 'under construction' message with a barrier icon.
+    
+    Attributes:
+        _svg_constr_barrier (str): Path to the construction barrier SVG icon.
+    """
     _svg_constr_barrier = 'assets/svg/under-construction-barrier-icon.svg'
+    
     def __init__(self, parent:QWidget|None = None, constructionMsg:str = '', f:Qt.WindowType = Qt.WindowType.Dialog):
+        """Initialize the under construction dialog.
+        
+        Args:
+            parent (QWidget | None, optional): Parent widget. Defaults to None.
+            constructionMsg (str, optional): Message to display. Defaults to ''.
+            f (Qt.WindowType, optional): Window type flags. Defaults to Qt.WindowType.Dialog.
+        """
         super().__init__(parent, f)
 
         if not self.objectName():
