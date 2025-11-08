@@ -1865,6 +1865,8 @@ class cSimpleRecordForm(cSimpleRecordForm_Base):
             formname (str | None, optional): The name of the form. Defaults to None.
             parent (QWidget | None, optional): The parent widget. Defaults to None.
         """
+        
+        
         if not self._formname:
             self._formname = formname if formname else 'Form'
 
